@@ -19,6 +19,13 @@ public static class GradingPedestalSpawner
             -14.16f
         );
 
+    public static readonly Vector3 GradedCardRestPosition =
+        new Vector3(
+            -27.85f,
+            -1.05f,
+            -14.16f
+        );
+
     private static GameObject? pedestalRoot;
     private static GameObject? pickupPedestalRoot;
 
@@ -462,14 +469,14 @@ public static class GradingPedestalSpawner
         catchSurface.transform.localPosition =
             new Vector3(
                 0f,
-                1.35f,
+                1.25f,
                 0f
             );
 
         catchSurface.transform.localScale =
             new Vector3(
                 2.2f,
-                0.30f,
+                0.10f,
                 2.2f
             );
 
