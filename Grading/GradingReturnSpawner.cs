@@ -120,12 +120,9 @@ public static class GradingReturnSpawner
             return false;
         }
 
-        Vector3 pickupSurfacePosition =
-            new Vector3(
-                -27.84f,
-                -1.02f,
-                -14.16f
-            );
+       Vector3 pickupSurfacePosition =
+            GradingPedestalSpawner
+                .GradedCardRestPosition;
 
         Vector3 spawnPosition =
             pickupSurfacePosition +
@@ -262,7 +259,7 @@ public static class GradingReturnSpawner
 
         return new Vector3(
             (column - 1) * 0.25f,
-            row * 0.03f,
+            0f,
             row * 0.22f
         );
     }
