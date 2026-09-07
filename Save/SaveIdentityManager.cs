@@ -10,6 +10,9 @@ public static class SaveIdentityManager
     private static string currentSaveIdentity =
         "";
 
+    private static string currentSaveName =
+        "";
+
     public static string CurrentSaveIdentity =>
         currentSaveIdentity;
 
@@ -33,6 +36,15 @@ public static class SaveIdentityManager
             GameNetworkManager.Instance
                 .currentSaveFileName;
 
+        // Already loaded for this exact save.
+        if (
+            !string.IsNullOrWhiteSpace(
+                currentSaveIdentity) &&
+            currentSaveName == saveName)
+        {
+            return currentSaveIdentity;
+        }
+
         try
         {
             if (
@@ -45,6 +57,9 @@ public static class SaveIdentityManager
                         IdentityKey,
                         saveName
                     );
+
+                currentSaveName =
+                    saveName;
 
                 Plugin.Log.LogInfo(
                     $"SAVE IDENTITY LOADED | " +
@@ -59,15 +74,15 @@ public static class SaveIdentityManager
                 Guid.NewGuid()
                     .ToString("N");
 
+            currentSaveName =
+                saveName;
+
             ES3.Save(
                 IdentityKey,
                 currentSaveIdentity,
                 saveName
             );
 
-            // A brand-new identity means this is a brand-new
-            // Lethal Company save. Clear anything that may still
-            // be in memory from the previously loaded save.
             Grading.GradingManager.Clear();
             Grading.GradingDayManager.SetDay(0);
 
@@ -103,6 +118,9 @@ public static class SaveIdentityManager
     public static void ResetRuntimeState()
     {
         currentSaveIdentity =
+            "";
+
+        currentSaveName =
             "";
     }
 }

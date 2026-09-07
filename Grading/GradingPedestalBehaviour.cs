@@ -165,7 +165,6 @@ public class GradingPedestalBehaviour : MonoBehaviour
 
         if (GradingManager.InstantGradingForTesting)
         {
-            GradingReturnSpawner.Reset();
             GradingReturnSpawner.TrySpawnReadyCards();
         }
 

@@ -22,7 +22,7 @@ public static class GradingPedestalSpawner
     public static readonly Vector3 GradedCardRestPosition =
         new Vector3(
             -27.85f,
-            -1.05f,
+            0.0f,
             -14.16f
         );
 
