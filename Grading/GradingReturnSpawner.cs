@@ -8,7 +8,9 @@ namespace LethalCards.Grading;
 
 public static class GradingReturnSpawner
 {
-    private static bool attemptedThisCompanyVisit;
+    private static readonly HashSet<string>
+        spawnedJobIds =
+            new HashSet<string>();
 
     public static void TrySpawnReadyCards()
     {
@@ -43,10 +45,6 @@ public static class GradingReturnSpawner
         if (depositDesk == null)
             return;
 
-        if (attemptedThisCompanyVisit)
-            return;
-
-        attemptedThisCompanyVisit = true;
 
         int currentDay =
             GradingDayManager.CurrentDay;
@@ -54,6 +52,9 @@ public static class GradingReturnSpawner
         List<GradingJob> readyJobs =
             GradingManager
                 .GetReadyJobs(currentDay)
+                .Where(job =>
+                    !spawnedJobIds.Contains(
+                        job.JobId))
                 .ToList();
 
         if (readyJobs.Count == 0)
@@ -61,11 +62,12 @@ public static class GradingReturnSpawner
 
         Plugin.Log.LogInfo(
             $"GRADING RETURNS READY | " +
-            $"Count={readyJobs.Count} | " +
+            $"NewCount={readyJobs.Count} | " +
             $"CurrentDay={currentDay}"
         );
 
-        int spawnIndex = 0;
+        int spawnIndex =
+            spawnedJobIds.Count;
 
         foreach (GradingJob job in readyJobs)
         {
@@ -78,11 +80,10 @@ public static class GradingReturnSpawner
             if (!spawned)
                 continue;
 
-            // IMPORTANT:
-            // Do not remove the grading job here.
-            //
-            // The job stays saved until the player
-            // actually picks up this returned card.
+            spawnedJobIds.Add(
+                job.JobId
+            );
+
             spawnIndex++;
         }
     }
@@ -206,17 +207,39 @@ public static class GradingReturnSpawner
 
         networkObject.Spawn();
 
+        Vector3 displayPosition =
+            new Vector3(
+                spawnPosition.x,
+                -0.88f,
+                spawnPosition.z
+            );
+
         obj.transform.position =
-            spawnPosition;
+            displayPosition;
 
         grabbable.startFallingPosition =
-            spawnPosition;
+            obj.transform.localPosition;
 
         grabbable.targetFloorPosition =
-            spawnPosition;
+            obj.transform.localPosition;
 
         grabbable.fallTime =
             1f;
+
+        grabbable.hasHitGround =
+            true;
+
+        grabbable.reachedFloorTarget =
+            true;
+
+        GradingReturnPedestalLock pedestalLock =
+            obj.AddComponent<
+                GradingReturnPedestalLock>();
+
+        pedestalLock.Initialize(
+            displayPosition,
+            Quaternion.identity
+        );
 
         // CardInstanceData applies its pending grade/value
         // during OnNetworkSpawn(), so set the physical
@@ -258,7 +281,7 @@ public static class GradingReturnSpawner
             spawnIndex / 3;
 
         return new Vector3(
-            (column - 1) * 0.25f,
+            (column - 1) * 0.55f,
             0f,
             row * 0.22f
         );
@@ -266,7 +289,6 @@ public static class GradingReturnSpawner
 
     public static void Reset()
     {
-        attemptedThisCompanyVisit =
-            false;
+        spawnedJobIds.Clear();
     }
 }
