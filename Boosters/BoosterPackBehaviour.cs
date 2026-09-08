@@ -17,28 +17,40 @@ public class BoosterPackBehaviour : PhysicsProp
     // while waiting for the server to process the first one.
     private float nextOpenRequestTime;
 
+    internal int DiagnosticActivationCount { get; private set; }
+
     public override void ItemActivate(
         bool used,
         bool buttonDown = true)
     {
+        DiagnosticActivationCount++;
+        BoosterDiagnostics.Log("ACTIVATE", this,
+            detail: $"Used={used} | ButtonDown={buttonDown} | Opened={opened}");
         base.ItemActivate(
             used,
             buttonDown
         );
 
         if (!buttonDown)
+        {
+            BoosterDiagnostics.Log("ACTIVATE_SKIP", this, detail: "Reason=Button release");
             return;
+        }
 
         // Host/server can process the opening immediately.
         if (IsServer)
         {
+            BoosterDiagnostics.Log("HOST_DIRECT_OPEN", this);
             TryOpenPackServer(NetworkManager.Singleton.LocalClientId);
             return;
         }
 
         // Clients request that the server open the pack.
         if (Time.realtimeSinceStartup < nextOpenRequestTime)
+        {
+            BoosterDiagnostics.Log("ACTIVATE_SKIP", this, detail: "Reason=Request throttle");
             return;
+        }
 
         nextOpenRequestTime = Time.realtimeSinceStartup + 0.5f;
 
@@ -48,6 +60,7 @@ public class BoosterPackBehaviour : PhysicsProp
             $"Client={NetworkManager.Singleton?.LocalClientId}"
         );
 
+        BoosterDiagnostics.Log("REQUEST_SEND", this);
         RequestOpenPackServerRpc();
     }
 
@@ -67,8 +80,12 @@ public class BoosterPackBehaviour : PhysicsProp
 
     private void TryOpenPackServer(ulong senderClientId)
     {
+        BoosterDiagnostics.Log("SERVER_OPEN_ENTER", this, detail: $"Sender={senderClientId}");
         if (!IsServer)
+        {
+            BoosterDiagnostics.Log("OPEN_REJECT", this, detail: "Reason=Not server");
             return;
+        }
 
         PlayerControllerB? holder = null;
         if (StartOfRound.Instance != null)
@@ -79,12 +96,26 @@ public class BoosterPackBehaviour : PhysicsProp
         }
         if (holder == null || !NetworkItemConsumption.IsValidHolder(holder, this) ||
             GetComponent<NetworkItemConsumption>() == null)
+        {
+            string reason = holder == null ? "Sender player not found" :
+                !holder.isPlayerControlled ? "Player not controlled" :
+                holder.isPlayerDead ? "Player dead" :
+                !IsSpawned ? "Pack not spawned" :
+                !heldByPlayerOnServer ? "Pack not held on server" :
+                OwnerClientId != holder.actualClientId ? "Network owner mismatch" :
+                holder.currentlyHeldObjectServer != this ? "Current held object mismatch" :
+                "Consumption component missing";
+            BoosterDiagnostics.Log("OPEN_REJECT", this, holder,
+                $"Sender={senderClientId} | Reason={reason}");
             return;
+        }
 
         CollectionSaveManager.LoadForCurrentSave();
 
         if (opened)
         {
+            BoosterDiagnostics.Log("OPEN_REJECT", this, holder,
+                $"Sender={senderClientId} | Reason=Already opened");
             Plugin.Log.LogInfo(
                 $"BOOSTER OPEN REJECTED | " +
                 $"Type={PackType} | " +
@@ -95,6 +126,8 @@ public class BoosterPackBehaviour : PhysicsProp
         }
 
         opened = true;
+
+        BoosterDiagnostics.Log("OPEN_ACCEPT", this, holder, $"Sender={senderClientId}");
 
         Plugin.Log.LogInfo(
             $"BOOSTER OPEN ACCEPTED | " +
