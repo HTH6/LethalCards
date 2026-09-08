@@ -2,6 +2,7 @@ using LethalCards.Cards;
 using Unity.Netcode;
 using UnityEngine;
 using GameNetcodeStuff;
+using LethalCards.Networking;
 
 namespace LethalCards.Grading;
 
@@ -53,6 +54,17 @@ public class GradingPedestalBehaviour : MonoBehaviour
         if (player == null)
             return;
 
+        StartOfRound round = StartOfRound.Instance;
+        if (round == null || round.currentLevel == null || !round.shipHasLanded ||
+            round.shipIsLeaving || round.inShipPhase ||
+            !round.currentLevel.PlanetName.Contains("Gordion", System.StringComparison.OrdinalIgnoreCase) ||
+            Object.FindObjectOfType<DepositItemsDesk>() == null ||
+            Vector3.Distance(player.transform.position, GradingPedestalSpawner.GradingPedestalPosition) > 5f)
+            return;
+
+        CollectionSaveManager.LoadForCurrentSave();
+        GradingSaveManager.LoadForCurrentSave();
+
         GrabbableObject heldObject =
             player.currentlyHeldObjectServer;
 
@@ -70,6 +82,10 @@ public class GradingPedestalBehaviour : MonoBehaviour
         CardInstanceData cardData =
             heldObject.GetComponent<CardInstanceData>();
 
+        if (!NetworkItemConsumption.IsValidHolder(player, heldObject) ||
+            heldObject.GetComponent<NetworkItemConsumption>() == null)
+            return;
+
         if (cardData == null)
         {
             Plugin.Log.LogInfo(
@@ -81,6 +97,9 @@ public class GradingPedestalBehaviour : MonoBehaviour
 
             return;
         }
+
+        if (CardDatabase.GetById(cardData.CardId) == null)
+            return;
 
         if (cardData.Grade > 0)
         {
@@ -200,11 +219,11 @@ public class GradingPedestalBehaviour : MonoBehaviour
             $"Slot={player.currentItemSlot}"
         );
 
-        player.DespawnHeldObject();
+        heldObject.GetComponent<NetworkItemConsumption>().ConsumeServer();
 
         Plugin.Log.LogInfo(
             "GRADING CARD REMOVED | " +
-            "DespawnHeldObject completed."
+            "Server consumption completed."
         );
     }
 }

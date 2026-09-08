@@ -12,36 +12,61 @@ public static class CollectionNetworkSync
         "LethalCards.CollectionSync";
 
     private static NetworkManager? currentManager;
+    private const string RequestMessageName = "LethalCards.CollectionRequest";
+    private static bool receivedSnapshot;
+    private static float nextRequestTime;
+
+    public static void Shutdown()
+    {
+        if (currentManager != null)
+        {
+            currentManager.OnClientConnectedCallback -= OnClientConnected;
+            currentManager.CustomMessagingManager?.UnregisterNamedMessageHandler(MessageName);
+            currentManager.CustomMessagingManager?.UnregisterNamedMessageHandler(RequestMessageName);
+        }
+        currentManager = null;
+        receivedSnapshot = false;
+        nextRequestTime = 0f;
+    }
+
+    public static void EnsureSnapshot()
+    {
+        NetworkManager manager = NetworkManager.Singleton;
+        if (manager == null || !manager.IsConnectedClient || manager.IsServer || receivedSnapshot ||
+            UnityEngine.Time.realtimeSinceStartup < nextRequestTime)
+            return;
+        nextRequestTime = UnityEngine.Time.realtimeSinceStartup + 2f;
+        using FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp);
+        manager.CustomMessagingManager.SendNamedMessage(RequestMessageName,
+            NetworkManager.ServerClientId, writer, NetworkDelivery.ReliableSequenced);
+    }
+
+    private static void ReceiveSnapshotRequest(ulong senderClientId, FastBufferReader reader)
+    {
+        if (currentManager == null || !currentManager.IsServer ||
+            !currentManager.ConnectedClients.ContainsKey(senderClientId))
+            return;
+        SendSnapshotToClient(senderClientId);
+    }
 
     public static void Initialize()
     {
         NetworkManager manager =
             NetworkManager.Singleton;
 
-        if (manager == null)
+        if (manager == null || !manager.IsListening)
             return;
 
         // Already initialized for this NetworkManager.
         if (currentManager == manager)
             return;
 
-        // Clean up callbacks from an older session.
-        if (currentManager != null)
-        {
-            currentManager.OnClientConnectedCallback -=
-                OnClientConnected;
-
-            if (currentManager.CustomMessagingManager != null)
-            {
-                currentManager.CustomMessagingManager
-                    .UnregisterNamedMessageHandler(
-                        MessageName
-                    );
-            }
-        }
+        Shutdown();
 
         currentManager =
             manager;
+
+        manager.CustomMessagingManager.RegisterNamedMessageHandler(RequestMessageName, ReceiveSnapshotRequest);
 
         manager.CustomMessagingManager
             .RegisterNamedMessageHandler(
@@ -139,6 +164,9 @@ public static class CollectionNetworkSync
             return;
         }
 
+        // A join can precede the first round update/load.
+        CollectionSaveManager.LoadForCurrentSave();
+
         string cardData =
             string.Join(
                 "\n",
@@ -196,7 +224,7 @@ public static class CollectionNetworkSync
             return;
 
         // Server never accepts collection state from clients.
-        if (manager.IsServer)
+        if (manager.IsServer || senderClientId != NetworkManager.ServerClientId)
             return;
 
         reader.ReadValueSafe(
@@ -221,6 +249,7 @@ public static class CollectionNetworkSync
             cards,
             variants
         );
+        receivedSnapshot = true;
 
         Plugin.Log.LogInfo(
             $"COLLECTION NETWORK RECEIVED | " +

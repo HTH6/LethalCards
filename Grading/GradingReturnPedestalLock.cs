@@ -10,8 +10,6 @@ public class GradingReturnPedestalLock :
     private Vector3 lockedPosition;
     private Quaternion lockedRotation;
 
-    private bool released;
-
     public void Initialize(
         Vector3 position,
         Quaternion rotation)
@@ -34,22 +32,15 @@ public class GradingReturnPedestalLock :
 
     private void LateUpdate()
     {
-        if (released)
-            return;
-
         if (grabbable == null)
             return;
 
-        // Once the player actually grabs the card,
-        // stop controlling its transform forever.
+        // Suspend during local pickup prediction. The replicated return state
+        // removes this component after acceptance; rejected grabs can relock.
         if (
             grabbable.isHeld ||
             grabbable.heldByPlayerOnServer)
         {
-            released = true;
-
-            Destroy(this);
-
             return;
         }
 

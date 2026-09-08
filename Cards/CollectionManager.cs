@@ -11,6 +11,8 @@ public static class CollectionManager
 
     public static void RegisterPull(CardPull pull)
     {
+        if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsServer)
+            return;
         if (pull.Card == null)
             return;
 

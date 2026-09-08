@@ -12,6 +12,8 @@ public static class GradingReturnSpawner
         spawnedJobIds =
             new HashSet<string>();
 
+    private static readonly List<GradingReturnData> spawnedReturns = new();
+
     public static void TrySpawnReadyCards()
     {
         if (
@@ -22,6 +24,9 @@ public static class GradingReturnSpawner
         }
 
         if (StartOfRound.Instance == null)
+            return;
+
+        if (!StartOfRound.Instance.shipHasLanded || StartOfRound.Instance.shipIsLeaving || StartOfRound.Instance.inShipPhase)
             return;
 
         SelectableLevel level =
@@ -131,6 +136,8 @@ public static class GradingReturnSpawner
                 spawnIndex
             );
 
+        spawnPosition.y = -0.88f;
+
         GameObject obj =
             Object.Instantiate(
                 card.ItemAsset.spawnPrefab,
@@ -163,10 +170,18 @@ public static class GradingReturnSpawner
         );
 
         GradingReturnData returnData =
-            obj.AddComponent<GradingReturnData>();
+            obj.GetComponent<GradingReturnData>();
+
+        if (returnData == null)
+        {
+            Plugin.Log.LogError("GRADING RETURN ERROR | GradingReturnData missing from registered prefab.");
+            Object.Destroy(obj);
+            return false;
+        }
 
         returnData.Initialize(
-            job.JobId
+            job.JobId,
+            spawnPosition
         );
 
         GrabbableObject grabbable =
@@ -206,40 +221,7 @@ public static class GradingReturnSpawner
         }
 
         networkObject.Spawn();
-
-        Vector3 displayPosition =
-            new Vector3(
-                spawnPosition.x,
-                -0.88f,
-                spawnPosition.z
-            );
-
-        obj.transform.position =
-            displayPosition;
-
-        grabbable.startFallingPosition =
-            obj.transform.localPosition;
-
-        grabbable.targetFloorPosition =
-            obj.transform.localPosition;
-
-        grabbable.fallTime =
-            1f;
-
-        grabbable.hasHitGround =
-            true;
-
-        grabbable.reachedFloorTarget =
-            true;
-
-        GradingReturnPedestalLock pedestalLock =
-            obj.AddComponent<
-                GradingReturnPedestalLock>();
-
-        pedestalLock.Initialize(
-            displayPosition,
-            Quaternion.identity
-        );
+        spawnedReturns.Add(returnData);
 
         // CardInstanceData applies its pending grade/value
         // during OnNetworkSpawn(), so set the physical
@@ -289,6 +271,18 @@ public static class GradingReturnSpawner
 
     public static void Reset()
     {
+        // Retire unclaimed physical copies before a later visit can respawn them.
+        foreach (GradingReturnData data in spawnedReturns)
+        {
+            NetworkManager manager = NetworkManager.Singleton;
+            if (manager == null || !manager.IsListening || manager.ShutdownInProgress ||
+                data == null || !data.IsSpawned || !data.IsServer)
+                continue;
+            data.TryClaim();
+            if (GradingManager.GetJobById(data.JobId) != null)
+                data.NetworkObject.Despawn(true);
+        }
+        spawnedReturns.Clear();
         spawnedJobIds.Clear();
     }
 }

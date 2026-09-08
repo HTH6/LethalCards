@@ -9,6 +9,8 @@ using GameNetcodeStuff;
 using Unity.Netcode;
 using HarmonyLib;
 using System.Reflection;
+using LethalCards.Grading;
+using LethalCards.Networking;
 
 namespace LethalCards;
 
@@ -36,6 +38,14 @@ public class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
+
+        // Unity normally invokes these generated Netcode initializers.
+        foreach (System.Type type in Assembly.GetExecutingAssembly().GetTypes())
+        foreach (MethodInfo method in type.GetMethods(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public))
+        {
+            if (method.IsDefined(typeof(RuntimeInitializeOnLoadMethodAttribute), false))
+                method.Invoke(null, null);
+        }
 
         Log.LogInfo("=================================");
         Log.LogInfo("LETHAL CARDS LOADED");
@@ -221,6 +231,11 @@ public class Plugin : BaseUnityPlugin
         CardInstanceData instanceData =
             prefab.GetComponent<CardInstanceData>();
 
+        if (prefab.GetComponent<GradingReturnData>() == null)
+            prefab.AddComponent<GradingReturnData>();
+        if (prefab.GetComponent<NetworkItemConsumption>() == null)
+            prefab.AddComponent<NetworkItemConsumption>();
+
         if (instanceData == null)
         {
             instanceData =
@@ -299,6 +314,8 @@ public class Plugin : BaseUnityPlugin
         PrepareCardPrefab(
             item.spawnPrefab
         );
+
+        item.saveItemVariable = true;
 
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(
             item.spawnPrefab
@@ -464,6 +481,9 @@ public class Plugin : BaseUnityPlugin
         Object.DestroyImmediate(
             oldPhysicsProp
         );
+
+        if (item.spawnPrefab.GetComponent<NetworkItemConsumption>() == null)
+            item.spawnPrefab.AddComponent<NetworkItemConsumption>();
 
         Log.LogInfo(
             $"Replaced PhysicsProp with " +

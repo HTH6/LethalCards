@@ -9,3 +9,4 @@ Z:\LethalCompanyMods\LethalCards\obj\Debug\netstandard2.1\LethalCards.csproj.Cor
 Z:\LethalCompanyMods\LethalCards\obj\Debug\netstandard2.1\LethalCards.dll
 Z:\LethalCompanyMods\LethalCards\obj\Debug\netstandard2.1\LethalCards.pdb
 Z:\LethalCompanyMods\LethalCards\obj\Debug\netstandard2.1\MyPluginInfo.cs
+Z:\LethalCompanyMods\LethalCards\obj\Debug\netstandard2.1\LethalCards.sourcelink.json

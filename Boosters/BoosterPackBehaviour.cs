@@ -1,6 +1,8 @@
 using LethalCards.Cards;
 using Unity.Netcode;
 using UnityEngine;
+using GameNetcodeStuff;
+using LethalCards.Networking;
 
 namespace LethalCards.Boosters;
 
@@ -13,7 +15,7 @@ public class BoosterPackBehaviour : PhysicsProp
 
     // Prevent a client from sending many RPC requests
     // while waiting for the server to process the first one.
-    private bool openRequestSent;
+    private float nextOpenRequestTime;
 
     public override void ItemActivate(
         bool used,
@@ -30,15 +32,15 @@ public class BoosterPackBehaviour : PhysicsProp
         // Host/server can process the opening immediately.
         if (IsServer)
         {
-            TryOpenPackServer();
+            TryOpenPackServer(NetworkManager.Singleton.LocalClientId);
             return;
         }
 
         // Clients request that the server open the pack.
-        if (openRequestSent)
+        if (Time.realtimeSinceStartup < nextOpenRequestTime)
             return;
 
-        openRequestSent = true;
+        nextOpenRequestTime = Time.realtimeSinceStartup + 0.5f;
 
         Plugin.Log.LogInfo(
             $"BOOSTER OPEN REQUEST | " +
@@ -60,13 +62,26 @@ public class BoosterPackBehaviour : PhysicsProp
             $"{rpcParams.Receive.SenderClientId}"
         );
 
-        TryOpenPackServer();
+        TryOpenPackServer(rpcParams.Receive.SenderClientId);
     }
 
-    private void TryOpenPackServer()
+    private void TryOpenPackServer(ulong senderClientId)
     {
         if (!IsServer)
             return;
+
+        PlayerControllerB? holder = null;
+        if (StartOfRound.Instance != null)
+        {
+            foreach (PlayerControllerB player in StartOfRound.Instance.allPlayerScripts)
+                if (player != null && player.actualClientId == senderClientId)
+                    holder = player;
+        }
+        if (holder == null || !NetworkItemConsumption.IsValidHolder(holder, this) ||
+            GetComponent<NetworkItemConsumption>() == null)
+            return;
+
+        CollectionSaveManager.LoadForCurrentSave();
 
         if (opened)
         {
@@ -342,23 +357,6 @@ public class BoosterPackBehaviour : PhysicsProp
     {
         if (!IsServer)
             return;
-
-        NetworkObject networkObject =
-            GetComponent<NetworkObject>();
-
-        if (
-            networkObject != null &&
-            networkObject.IsSpawned)
-        {
-            networkObject.Despawn(
-                true
-            );
-        }
-        else
-        {
-            Destroy(
-                gameObject
-            );
-        }
+        GetComponent<NetworkItemConsumption>().ConsumeServer();
     }
 }

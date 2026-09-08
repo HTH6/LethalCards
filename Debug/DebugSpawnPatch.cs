@@ -12,6 +12,8 @@ public static class DebugSpawnPatch
 {
     private static bool spawnedTestPacks;
 
+    public static void Reset() => spawnedTestPacks = false;
+
     [HarmonyPostfix]
     private static void Postfix()
     {
@@ -33,15 +35,6 @@ public static class DebugSpawnPatch
         // Don't run while still at the main menu / before the player exists.
         if (!player.isPlayerControlled)
             return;
-
-        // Load collection data for the current save.
-        CollectionSaveManager.LoadForCurrentSave();
-
-        GradingSaveManager.LoadForCurrentSave();
-        // Keep checking every frame.
-        // This will only actually spawn the pedestal when we're on Gordion.
-        GradingPedestalSpawner.TrySpawn();
-        GradingReturnSpawner.TrySpawnReadyCards();
 
         // Everything below here is only for spawning
         // the Light and Heavy debug booster packs once.

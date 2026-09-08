@@ -11,26 +11,25 @@ public static class GradingNetworkSync
 
     private static NetworkManager? currentManager;
 
+    public static void Shutdown()
+    {
+        if (currentManager != null)
+            currentManager.CustomMessagingManager?.UnregisterNamedMessageHandler(SubmitMessageName);
+        currentManager = null;
+    }
+
     public static void Initialize()
     {
         NetworkManager manager =
             NetworkManager.Singleton;
 
-        if (manager == null)
+        if (manager == null || !manager.IsListening)
             return;
 
         if (currentManager == manager)
             return;
 
-        if (
-            currentManager != null &&
-            currentManager.CustomMessagingManager != null)
-        {
-            currentManager.CustomMessagingManager
-                .UnregisterNamedMessageHandler(
-                    SubmitMessageName
-                );
-        }
+        Shutdown();
 
         currentManager =
             manager;

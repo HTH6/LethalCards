@@ -131,9 +131,8 @@ public static class CardLoadPatch
 
         if (data == null)
         {
-            data =
-                __instance.gameObject
-                    .AddComponent<CardInstanceData>();
+            Plugin.Log.LogError("CARD LOAD FAILED | CardInstanceData missing from registered prefab.");
+            return;
         }
 
         data.InitializeLoaded(
@@ -142,9 +141,8 @@ public static class CardLoadPatch
             grade
         );
 
-        __instance.SetScrapValue(
-            data.FinalValue
-        );
+        // CardInstanceData applies physical value after pending initialization
+        // and whenever replicated metadata arrives on clients.
 
         Plugin.Log.LogInfo(
             $"CARD LOAD DATA | " +

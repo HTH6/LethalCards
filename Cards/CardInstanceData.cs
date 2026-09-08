@@ -83,6 +83,16 @@ public class CardInstanceData : NetworkBehaviour
         networkGrade.OnValueChanged +=
             OnGradeChanged;
 
+        networkUngradedValue.OnValueChanged += OnValueChanged;
+
+        // Natural scrap spawns have no booster/return initialization.
+        if (IsServer && !hasPendingInitialization)
+        {
+            CardDefinition? card = CardDatabase.GetById(cardId);
+            if (card != null)
+                InitializeLoaded(card, CardVariant.Standard, 0);
+        }
+
         // Apply values that were prepared before
         // NetworkObject.Spawn().
         if (
@@ -93,6 +103,7 @@ public class CardInstanceData : NetworkBehaviour
         }
 
         RefreshGradeVisual();
+        RefreshScrapValue();
 
         Plugin.Log.LogInfo(
             $"CARD NETWORK SPAWN | " +
@@ -109,6 +120,7 @@ public class CardInstanceData : NetworkBehaviour
     {
         networkGrade.OnValueChanged -=
             OnGradeChanged;
+        networkUngradedValue.OnValueChanged -= OnValueChanged;
 
         base.OnNetworkDespawn();
     }
@@ -344,6 +356,24 @@ public class CardInstanceData : NetworkBehaviour
         int newGrade)
     {
         RefreshGradeVisual();
+        RefreshScrapValue();
+    }
+
+    private void OnValueChanged(int previous, int current) => RefreshScrapValue();
+
+    private void LateUpdate()
+    {
+        // Vanilla spawn/load scrap synchronization can run after OnNetworkSpawn.
+        // Keep the physical value consistent with the server-owned metadata.
+        if (IsSpawned)
+            RefreshScrapValue();
+    }
+
+    private void RefreshScrapValue()
+    {
+        GrabbableObject item = GetComponent<GrabbableObject>();
+        if (item != null && item.scrapValue != FinalValue)
+            item.SetScrapValue(FinalValue);
     }
 
     private void RefreshGradeVisual()

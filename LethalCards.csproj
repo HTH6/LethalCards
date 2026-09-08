@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Sdk Name="Evaisa.NetcodePatcher.MSBuild" Version="4.4.2" />
+
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
 
@@ -10,14 +12,26 @@
     <Nullable>enable</Nullable>
 
     <LethalCompanyDir>Z:\SteamLibrary\steamapps\common\Lethal Company</LethalCompanyDir>
+    <NetcodePatcherUnityVersion>2022.3.62</NetcodePatcherUnityVersion>
+    <NetcodePatcherNetcodeVersion>1.12.0</NetcodePatcherNetcodeVersion>
+    <NetcodePatcherTransportVersion>1.0.0</NetcodePatcherTransportVersion>
   </PropertyGroup>
 
   <ItemGroup>
+    <NetcodePatch Include="$(TargetPath)" />
     <PackageReference Include="BepInEx.Core" Version="5.*" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="Unity.Collections">
+      <HintPath>$(LethalCompanyDir)\Lethal Company_Data\Managed\Unity.Collections.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(LethalCompanyDir)\Lethal Company_Data\Managed\UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(LethalCompanyDir)\Lethal Company_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -79,4 +93,7 @@
     </Reference>
   </ItemGroup>
 
+  <Target Name="RequireNetcodeBuildHost" BeforeTargets="PrepareForBuild" Condition="'$(MSBuildRuntimeType)' != 'Core'">
+    <Error Text="Build LethalCards with dotnet build (.NET 8 SDK) so Netcode RPC/NetworkVariable patching runs." />
+  </Target>
 </Project>
