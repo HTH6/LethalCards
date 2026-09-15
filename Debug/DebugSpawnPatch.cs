@@ -7,7 +7,7 @@ using LethalCards.Grading;
 
 namespace LethalCards.Debugging;
 
-[HarmonyPatch(typeof(StartOfRound), "Update")]
+// [HarmonyPatch(typeof(StartOfRound), "Update")]
 public static class DebugSpawnPatch
 {
     private static bool spawnedTestPacks;

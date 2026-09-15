@@ -12,6 +12,7 @@ public static class GradingManager
     // TEMPORARY TEST SETTINGS
     // ============================================================
 
+    /* Retained test overrides; normal gameplay uses the logic below.
     public const bool InstantGradingForTesting = true;
     public const bool FreeGradingForTesting = true;
     public const bool FixedGradeForTesting = true;
@@ -22,6 +23,8 @@ public static class GradingManager
         FreeGradingForTesting
             ? 0
             : 10;
+    */
+    public const int GradingCostPerCard = 10;
 
     // ============================================================
 
@@ -36,9 +39,8 @@ public static class GradingManager
         int currentDay)
     {
         int grade =
-            FixedGradeForTesting
-                ? TestGrade
-                : CardGrading.RollGrade();
+            // FixedGradeForTesting ? TestGrade : CardGrading.RollGrade();
+            CardGrading.RollGrade();
 
         GradingJob job =
             new GradingJob
@@ -52,9 +54,8 @@ public static class GradingManager
                 Grade = grade,
                 SubmittedDay = currentDay,
                 ReadyDay =
-                InstantGradingForTesting
-                    ? currentDay
-                    : currentDay + GradingTurnaroundDays
+                // InstantGradingForTesting ? currentDay : currentDay + GradingTurnaroundDays
+                currentDay + GradingTurnaroundDays
             };
 
         PendingJobs.Add(job);

@@ -247,7 +247,8 @@ public static class BoosterGenerator
             CardRarity rarity)
     {
         List<CardDefinition> candidates =
-            CardDatabase.Cards
+            // CardDatabase.Cards // Previously every registered definition was playable.
+            CardDatabase.GetImplementedCards()
                 .Where(
                     card =>
                         card.Rarity == rarity

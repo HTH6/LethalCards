@@ -23,7 +23,7 @@ public class BoosterPackBehaviour : PhysicsProp
         bool used,
         bool buttonDown = true)
     {
-        DiagnosticActivationCount++;
+        // DiagnosticActivationCount++; // Disabled testing counter.
         BoosterDiagnostics.Log("ACTIVATE", this,
             detail: $"Used={used} | ButtonDown={buttonDown} | Opened={opened}");
         base.ItemActivate(

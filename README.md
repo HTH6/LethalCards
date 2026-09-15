@@ -41,6 +41,20 @@ More cards and future card sets are planned.
 
 Booster Packs can appear as scrap and can be opened to receive three cards.
 
+Booster spawn weights are configured in `BepInEx/config/HunterHaaf.LethalCards.cfg`,
+generated when the plugin first runs:
+
+```ini
+[Spawn Weights]
+LightBoosterWeight = 12
+HeavyBoosterWeight = 4
+```
+
+These are relative selection weights, not percentages or carry weights. Set a
+weight to `0` to disable natural spawning for that pack type. Restart the game
+after editing the config. The host's settings determine the round's scrap rolls.
+Individual cards do not spawn as map scrap; they come from booster packs.
+
 ### Light Booster Pack
 
 Contains three cards with the standard pack rarity distribution.
@@ -71,6 +85,11 @@ Opening a card from a booster permanently registers that card and its variant in
 You do not need to keep the physical card afterward. Once discovered, it remains registered even if you sell it or submit it for grading.
 
 Collection progress is stored separately for each Lethal Company save.
+
+Type `collection` in the terminal to see all cards, or `collection <card name>`
+to see one card's discovery status and discovered variants. Names are
+case-insensitive; `collection coilhead`, `collection coil-head`, and
+`collection coil head` all find Coil-Head. Viewing a card does not unlock it.
 
 ## Card Grading
 

@@ -5,7 +5,7 @@ using UnityEngine.InputSystem;
 
 namespace LethalCards.Debugging;
 
-[HarmonyPatch(typeof(PlayerControllerB), "Update")]
+// [HarmonyPatch(typeof(PlayerControllerB), "Update")]
 public static class PlayerPositionDebugPatch
 {
     [HarmonyPostfix]

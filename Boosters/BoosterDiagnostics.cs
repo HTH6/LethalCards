@@ -11,6 +11,7 @@ internal static class BoosterDiagnostics
     internal static void Log(string stage, BoosterPackBehaviour pack,
         PlayerControllerB? player = null, string detail = "")
     {
+        /* Temporary diagnostic body retained for later testing.
         NetworkManager manager = NetworkManager.Singleton;
         player ??= GameNetworkManager.Instance?.localPlayerController;
         Plugin.Log.LogInfo(
@@ -22,10 +23,11 @@ internal static class BoosterDiagnostics
             $"HeldObjectMatches={(player != null && player.currentlyHeldObjectServer == pack)} | " +
             $"Held={pack.isHeld} | HeldOnServer={pack.heldByPlayerOnServer} | Pocketed={pack.isPocketed} | " +
             $"Controlled={player?.isPlayerControlled} | Dead={player?.isPlayerDead} | {detail}");
+        */
     }
 }
 
-[HarmonyPatch(typeof(PlayerControllerB), "ActivateItem_performed")]
+// [HarmonyPatch(typeof(PlayerControllerB), "ActivateItem_performed")]
 internal static class BoosterInputDiagnosticsPatch
 {
     [HarmonyPrefix]
@@ -51,7 +53,7 @@ internal static class BoosterInputDiagnosticsPatch
     }
 }
 
-[HarmonyPatch(typeof(GrabbableObject), "UseItemOnClient")]
+// [HarmonyPatch(typeof(GrabbableObject), "UseItemOnClient")]
 internal static class BoosterUseDiagnosticsPatch
 {
     [HarmonyPrefix]
