@@ -1,6 +1,6 @@
 {
   "name": "LethalCards",
-  "version_number": "0.1.0",
+  "version_number": "0.1.3",
   "website_url": "",
   "description": "Beta: Adds collectible trading cards, booster packs, variants, collection tracking, and card grading to Lethal Company.",
   "dependencies": [

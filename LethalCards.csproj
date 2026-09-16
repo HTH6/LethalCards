@@ -10,6 +10,8 @@
 
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <Version>0.1.3</Version>
+    <LethalLibPath Condition="'$(LethalLibPath)' == ''">$(AppData)\r2modmanPlus-local\LethalCompany\profiles\LethalCardsDev\BepInEx\plugins\Evaisa-LethalLib\LethalLib\LethalLib.dll</LethalLibPath>
 
     <LethalCompanyDir>Z:\SteamLibrary\steamapps\common\Lethal Company</LethalCompanyDir>
     <NetcodePatcherUnityVersion>2022.3.62</NetcodePatcherUnityVersion>
@@ -88,7 +90,7 @@
 </Reference>
 
       <Reference Include="LethalLib">
-    <HintPath>C:\Users\Hunter\AppData\Roaming\r2modmanPlus-local\LethalCompany\profiles\LethalCardsDev\BepInEx\plugins\Evaisa-LethalLib\LethalLib\LethalLib.dll</HintPath>
+    <HintPath>$(LethalLibPath)</HintPath>
     <Private>false</Private>
     </Reference>
   </ItemGroup>

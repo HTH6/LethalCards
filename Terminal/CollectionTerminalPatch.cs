@@ -1,8 +1,11 @@
 using System.Text;
 using System;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using LethalCards.Cards;
+using LethalCards.Grading;
+using Unity.Netcode;
 
 namespace LethalCards.TerminalCommands;
 
@@ -12,15 +15,47 @@ public static class CollectionTerminalPatch
     private const string CollectionCommand = "collection";
     private const string CardsCommand = "cards";
     private const string HelpSubcommand = "help";
+    private const int CollectionPageSize = 3;
+    // Navigation belongs to this terminal instance, not the shared collection/save state.
+    private sealed class CollectionPageState
+    {
+        public int PageIndex;
+        public bool Browsing;
+    }
+    private static ConditionalWeakTable<Terminal, CollectionPageState> CollectionPages = new();
+
+    internal static void ResetContext() => CollectionPages = new();
+
+    private static void SetCollectionContext(Terminal terminal, bool browsing)
+    {
+        GradingNetworkSync.CancelStatusRequest();
+        CollectionPageState state = CollectionPages.GetValue(terminal, _ => new CollectionPageState());
+        if (state.Browsing == browsing)
+            return;
+        state.Browsing = browsing;
+        Plugin.Log.LogDebug(browsing ? "COLLECTION CONTEXT ENTER" : "COLLECTION CONTEXT EXIT");
+    }
+
+    [HarmonyPatch("QuitTerminal"), HarmonyPrefix]
+    private static void QuitPrefix(Terminal __instance) => SetCollectionContext(__instance, false);
+
+    [HarmonyPatch("BeginUsingTerminal"), HarmonyPrefix]
+    private static void BeginPrefix(Terminal __instance) => SetCollectionContext(__instance, false);
+
+    [HarmonyPatch("OnDisable"), HarmonyPrefix]
+    private static void DisablePrefix(Terminal __instance) => SetCollectionContext(__instance, false);
 
     [HarmonyPatch("ParsePlayerSentence")]
     [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
     private static bool ParsePlayerSentencePrefix(
         Terminal __instance,
         ref TerminalNode __result)
     {
         if (__instance == null)
             return true;
+
+        GradingNetworkSync.CancelStatusRequest();
 
         string input =
             __instance.screenText.text
@@ -30,6 +65,34 @@ public static class CollectionTerminalPatch
                 )
                 .Trim()
                 .ToLowerInvariant();
+
+        CollectionPageState context = CollectionPages.GetValue(__instance, _ => new CollectionPageState());
+        if (context.Browsing && (input == "next" || input == "prev" || input == "previous"))
+            input = CollectionCommand + " " + (input == "next" ? "next" : "previous");
+        if (input == "grading" || input == "grades")
+        {
+            SetCollectionContext(__instance, false);
+            TerminalNode gradingNode = UnityEngine.ScriptableObject.CreateInstance<TerminalNode>();
+            gradingNode.clearPreviousText = true;
+            if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsServer)
+            {
+                gradingNode.displayText = "\nLETHAL CARDS GRADING STATUS\n\nRetrieving grading status...\n\n";
+                if (!GradingNetworkSync.RequestStatus(display =>
+                {
+                    if (__instance == null || !__instance.terminalInUse)
+                        return;
+                    TerminalNode response = UnityEngine.ScriptableObject.CreateInstance<TerminalNode>();
+                    response.clearPreviousText = true;
+                    response.displayText = display;
+                    __instance.LoadNewNode(response);
+                }))
+                    gradingNode.displayText = "\nLETHAL CARDS GRADING STATUS\n\nUnable to contact the server. Try grades again.\n\n";
+            }
+            else
+                gradingNode.displayText = BuildGradingText(input);
+            __result = gradingNode;
+            return false;
+        }
 
         // Previously only: if (input != "collection")
         // const string command = "collection";
@@ -45,7 +108,12 @@ public static class CollectionTerminalPatch
         if (!isCardsCommand && input != command &&
             !(input.StartsWith(command, StringComparison.Ordinal) &&
               input.Length > command.Length && char.IsWhiteSpace(input[command.Length])))
+        {
+            SetCollectionContext(__instance, false);
             return true;
+        }
+
+        SetCollectionContext(__instance, !isCardsCommand);
 
         // string cardQuery = input.Substring(command.Length).Trim();
         // string cardQuery = showHelp ? "" : input.Substring(command.Length).Trim();
@@ -67,9 +135,7 @@ public static class CollectionTerminalPatch
         node.displayText = isCardsCommand
             ? (showHelp ? BuildHelpText() :
                 $"\nUnknown Lethal Cards command.\nType \"{CardsCommand} {HelpSubcommand}\" for available commands.\n\n")
-            : cardQuery.Length == 0
-            ? BuildCollectionText()
-            : BuildCardDetailText(cardQuery);
+            : BuildCollectionResponse(__instance, cardQuery);
 
         __result = node;
 
@@ -80,10 +146,14 @@ public static class CollectionTerminalPatch
 
     private static string BuildHelpText()
     {
-        // List only routes implemented by this parser. Grading has no terminal route yet.
+        // List only routes implemented by this parser.
         return "\n=== LETHAL CARDS COMMANDS ===\n\n" +
             $"{CollectionCommand}\nView your discovered cards and variants.\n\n" +
+            $"{CollectionCommand} next / previous\nMove between collection pages.\n\n" +
+            $"{CollectionCommand} page <number>\nView a specific collection page.\n\n" +
             $"{CollectionCommand} <card name>\nView detailed collection information for one card.\n\n" +
+            "next / prev / previous\nNavigate while browsing collection.\n\n" +
+            "grading / grades\nView grading status and ready results.\n\n" +
             $"{CardsCommand} {HelpSubcommand}\nDisplay this help screen.\n\n";
     }
 
@@ -155,22 +225,62 @@ public static class CollectionTerminalPatch
         return builder.ToString();
     }
 
-    private static string BuildCollectionText()
+    private static string BuildCollectionResponse(Terminal terminal, string query)
+    {
+        CollectionPageState state = CollectionPages.GetValue(terminal, _ => new CollectionPageState());
+        if (query.Length == 0)
+            state.PageIndex = 0;
+        else if (query == "next")
+            state.PageIndex++;
+        else if (query == "previous" || query == "prev")
+            state.PageIndex--;
+        else if (query == "page" || (query.StartsWith("page", StringComparison.Ordinal) &&
+                 query.Length > 4 && char.IsWhiteSpace(query[4])))
+        {
+            if (!int.TryParse(query.Substring(4).Trim(), out int page) || page < 1)
+                return "\nUse \"collection page <number>\" with a positive page number.\n\n";
+            state.PageIndex = page - 1;
+        }
+        else
+            return BuildCardDetailText(query);
+
+        int pageCount = Math.Max(1, (CardDatabase.Cards.Count + CollectionPageSize - 1) / CollectionPageSize);
+        state.PageIndex = Math.Max(0, Math.Min(state.PageIndex, pageCount - 1));
+        return BuildCollectionText(state.PageIndex);
+    }
+
+    private static string BuildCollectionText(int pageIndex)
     {
         StringBuilder builder = new();
         CardVariant[] variants = (CardVariant[])Enum.GetValues(typeof(CardVariant));
         int cardsFound = 0;
         int variantsFound = 0;
+        CardDefinition[] entries = CardDatabase.Cards
+            .OrderBy(card => card.SetId, StringComparer.Ordinal)
+            .ThenBy(card => card.SetNumber).ToArray();
+        int pageCount = Math.Max(1, (entries.Length + CollectionPageSize - 1) / CollectionPageSize);
+        pageIndex = Math.Max(0, Math.Min(pageIndex, pageCount - 1));
+        int startIndex = pageIndex * CollectionPageSize;
+        int endIndex = Math.Min(startIndex + CollectionPageSize, entries.Length);
+        Plugin.Log.LogDebug($"COLLECTION PAGE | Page={pageIndex + 1}/{pageCount} | Start={(entries.Length == 0 ? 0 : startIndex + 1)} | End={endIndex} | Total={entries.Length} | Range=1-based inclusive");
 
-        builder.AppendLine();
-        builder.AppendLine("=== LETHAL CARDS COLLECTION ===");
-        builder.AppendLine();
-
-        // Previously sorted by persistent ID; display numbers are now separate.
-        foreach (CardDefinition card in CardDatabase.Cards.OrderBy(card => card.SetId, StringComparer.Ordinal).ThenBy(card => card.SetNumber))
+        // Totals describe the full collection, independently of the visible page.
+        foreach (CardDefinition card in entries)
         {
             if (CollectionManager.HasCard(card.CardId))
                 cardsFound++;
+            variantsFound += variants.Count(variant => CollectionManager.HasVariant(card.CardId, variant));
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("=== LETHAL CARDS COLLECTION ===");
+        builder.AppendLine($"Page {pageIndex + 1} / {pageCount}");
+        builder.AppendLine();
+
+        // Previously sorted by persistent ID; display numbers are now separate.
+        for (int index = startIndex; index < endIndex; index++)
+        {
+            CardDefinition card = entries[index];
 
             // Keep the set prefix so numbers remain unambiguous across sets.
             // builder.AppendLine($"{card.CardId} - {card.DisplayName}");
@@ -180,8 +290,6 @@ public static class CollectionTerminalPatch
             foreach (CardVariant variant in variants)
             {
                 bool found = CollectionManager.HasVariant(card.CardId, variant);
-                if (found)
-                    variantsFound++;
                 string label = System.Text.RegularExpressions.Regex.Replace(
                     variant.ToString(), "([a-z])([A-Z])", "$1 $2");
                 builder.AppendLine($"  [{(found ? "X" : " ")}] {label}");
@@ -191,10 +299,46 @@ public static class CollectionTerminalPatch
 
         builder.AppendLine($"Cards Discovered: {cardsFound} / {CardDatabase.Cards.Count}");
         builder.AppendLine($"Variants Discovered: {variantsFound} / {CardDatabase.Cards.Count * variants.Length}");
+        if (pageIndex > 0)
+            builder.AppendLine("Previous: collection previous");
+        if (pageIndex + 1 < pageCount)
+            builder.AppendLine("Next: collection next");
         builder.AppendLine();
         builder.AppendLine("Type \"collection <card name>\" for details.");
+        builder.AppendLine("While browsing: next / prev / previous.");
         builder.AppendLine("Type \"cards help\" for Lethal Cards commands.");
         builder.AppendLine();
+        return builder.ToString();
+    }
+
+    internal static string BuildGradingText(string command)
+    {
+        // Called on the host only, for both local commands and targeted remote responses.
+        StringBuilder builder = new("\nLETHAL CARDS GRADING STATUS\n\n");
+        int currentDay = GradingDayManager.CurrentDay;
+        Plugin.Log.LogInfo($"GRADING TERMINAL COMMAND | Command={command} | Jobs={GradingManager.Jobs.Count}");
+        if (GradingManager.Jobs.Count == 0)
+            builder.AppendLine("No cards are currently in grading.");
+        foreach (GradingJob job in GradingManager.Jobs)
+        {
+            long elapsed = (long)currentDay - job.SubmittedDay;
+            string status = elapsed <= 0 ? "Processing Order..." : elapsed == 1 ? "Assessing Grade..." :
+                elapsed == 2 ? "Shipping Order..." : "Ready for pickup!";
+            bool visible = elapsed >= 3;
+            string displayName = CardNameFormatter.GetDisplayName(
+                CardDatabase.GetById(job.CardId)?.DisplayName ?? job.CardId, job.Variant);
+            builder.AppendLine(displayName);
+            builder.AppendLine($"Status: {status}");
+            if (visible)
+            {
+                builder.AppendLine($"Grade: {job.Grade}");
+                builder.AppendLine(job.FinalValue.HasValue ? $"Value: ${job.FinalValue.Value}" : "Value: unavailable");
+            }
+            builder.AppendLine();
+            Plugin.Log.LogDebug($"GRADING STATUS | CardId={job.CardId} | Variant={job.Variant} | DisplayName=\"{displayName}\" | SubmittedDay={job.SubmittedDay} | " +
+                $"CurrentDay={currentDay} | DaysElapsed={elapsed} | Status=\"{status}\" | GradeVisible={visible}" +
+                $" | ValueVisible={visible}" + (visible ? $" | Grade={job.Grade} | FinalValue={job.FinalValue}" : ""));
+        }
         return builder.ToString();
     }
 

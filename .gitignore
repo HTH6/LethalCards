@@ -1,0 +1,7 @@
+# Generated build output can contain machine paths and private metadata.
+bin/
+obj/
+*.zip
+*.pdb
+.vs/
+.idea/

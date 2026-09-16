@@ -21,6 +21,7 @@ try {
     # An ordinary C# build succeeds even when RPCs are never rewritten.
     foreach ($spec in @(
         @('LethalCards.Boosters.BoosterPackBehaviour', 'RequestOpenPackServerRpc', '__beginSendServerRpc'),
+        @('LethalCards.Boosters.BoosterBoxBehaviour', 'RequestOpenBoxServerRpc', '__beginSendServerRpc'),
         @('LethalCards.Networking.NetworkItemConsumption', 'ClearInventoryClientRpc', '__beginSendClientRpc')
     )) {
         $type = $assembly.MainModule.GetType($spec[0])

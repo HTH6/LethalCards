@@ -163,10 +163,12 @@ public static class GradingReturnSpawner
             return false;
         }
 
+        job.EnsureFinalValue();
         instanceData.InitializeLoaded(
             card,
             job.Variant,
-            job.Grade
+            job.Grade,
+            job.FinalValue
         );
 
         GradingReturnData returnData =

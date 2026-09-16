@@ -29,6 +29,13 @@ public static class SessionLifecyclePatch
             return;
         nextUpdate = Time.realtimeSinceStartup + 0.25f;
 
+        // ==================================================
+        // DEBUG ONLY - BOOSTER BOX SHIP SPAWNS
+        // Comment this call out for normal release gameplay.
+        // Natural facility registration is independent.
+        // ==================================================
+        //DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
+
         CollectionNetworkSync.Initialize();
         GradingNetworkSync.Initialize();
         if (manager.IsServer)
@@ -62,6 +69,7 @@ public static class SessionLifecyclePatch
 
     private static void ResetSession()
     {
+        LethalCards.TerminalCommands.CollectionTerminalPatch.ResetContext();
         GradingReturnSpawner.Reset();
         GradingPedestalSpawner.Reset();
         CollectionNetworkSync.Shutdown();

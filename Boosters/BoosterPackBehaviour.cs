@@ -23,6 +23,11 @@ public class BoosterPackBehaviour : PhysicsProp
         bool used,
         bool buttonDown = true)
     {
+        Plugin.Log.LogInfo($"BOOSTER PACK ITEM ACTIVATE | Type={PackType} | Used={used} | ButtonDown={buttonDown} | " +
+            $"HeldBy={playerHeldBy?.actualClientId} | Spawned={IsSpawned} | Server={IsServer} | Owner={OwnerClientId} | " +
+            $"Component={GetType().Name} | NetworkObjectId={NetworkObjectId} | ItemProperties={itemProperties?.name} | " +
+            $"Grabbable={grabbable} | Parent={parentObject?.name} | Renderer={mainObjectRenderer?.name} | UseCooldown={useCooldown} | " +
+            $"Consumption={GetComponent<NetworkItemConsumption>() != null}");
         // DiagnosticActivationCount++; // Disabled testing counter.
         BoosterDiagnostics.Log("ACTIVATE", this,
             detail: $"Used={used} | ButtonDown={buttonDown} | Opened={opened}");
@@ -40,6 +45,7 @@ public class BoosterPackBehaviour : PhysicsProp
         // Host/server can process the opening immediately.
         if (IsServer)
         {
+            Plugin.Log.LogInfo($"BOOSTER PACK OPEN REQUEST | Type={PackType} | Path=Host");
             BoosterDiagnostics.Log("HOST_DIRECT_OPEN", this);
             TryOpenPackServer(NetworkManager.Singleton.LocalClientId);
             return;
@@ -55,7 +61,7 @@ public class BoosterPackBehaviour : PhysicsProp
         nextOpenRequestTime = Time.realtimeSinceStartup + 0.5f;
 
         Plugin.Log.LogInfo(
-            $"BOOSTER OPEN REQUEST | " +
+            $"BOOSTER PACK OPEN REQUEST | " +
             $"Type={PackType} | " +
             $"Client={NetworkManager.Singleton?.LocalClientId}"
         );
@@ -87,17 +93,15 @@ public class BoosterPackBehaviour : PhysicsProp
             return;
         }
 
-        PlayerControllerB? holder = null;
-        if (StartOfRound.Instance != null)
-        {
-            foreach (PlayerControllerB player in StartOfRound.Instance.allPlayerScripts)
-                if (player != null && player.actualClientId == senderClientId)
-                    holder = player;
-        }
-        if (holder == null || !NetworkItemConsumption.IsValidHolder(holder, this) ||
+        // Match the tested box path: unused player slots can also have client ID zero.
+        // Authenticate the server's actual holder instead of taking the last matching slot.
+        PlayerControllerB? holder = playerHeldBy;
+        if (holder == null || holder.actualClientId != senderClientId ||
+            !NetworkItemConsumption.IsValidHolder(holder, this) ||
             GetComponent<NetworkItemConsumption>() == null)
         {
             string reason = holder == null ? "Sender player not found" :
+                holder.actualClientId != senderClientId ? "Sender is not holder" :
                 !holder.isPlayerControlled ? "Player not controlled" :
                 holder.isPlayerDead ? "Player dead" :
                 !IsSpawned ? "Pack not spawned" :
@@ -107,6 +111,9 @@ public class BoosterPackBehaviour : PhysicsProp
                 "Consumption component missing";
             BoosterDiagnostics.Log("OPEN_REJECT", this, holder,
                 $"Sender={senderClientId} | Reason={reason}");
+            Plugin.Log.LogInfo($"BOOSTER PACK OPEN REJECT | Type={PackType} | Sender={senderClientId} | " +
+                $"Holder={holder?.actualClientId} | Controlled={holder?.isPlayerControlled} | Owner={OwnerClientId} | " +
+                $"HeldObjectMatches={(holder != null && holder.currentlyHeldObjectServer == this)} | Reason={reason}");
             return;
         }
 
@@ -130,7 +137,7 @@ public class BoosterPackBehaviour : PhysicsProp
         BoosterDiagnostics.Log("OPEN_ACCEPT", this, holder, $"Sender={senderClientId}");
 
         Plugin.Log.LogInfo(
-            $"BOOSTER OPEN ACCEPTED | " +
+            $"BOOSTER PACK OPEN | " +
             $"Type={PackType}"
         );
 

@@ -58,13 +58,14 @@ public static class GradingManager
                 currentDay + GradingTurnaroundDays
             };
 
+        job.EnsureFinalValue();
         PendingJobs.Add(job);
 
         Plugin.Log.LogInfo(
             $"GRADING JOB CREATED | " +
             $"CardId={job.CardId} | " +
             $"Variant={job.Variant} | " +
-            $"Grade={job.Grade} | " +
+            $"ResultStored=True | " +
             $"SubmittedDay={job.SubmittedDay} | " +
             $"ReadyDay={job.ReadyDay}"
         );
@@ -109,7 +110,7 @@ public static class GradingManager
             PendingJobs.Remove(job);
 
             Plugin.Log.LogInfo(
-                $"GRADING JOB CLAIMED | " +
+                $"GRADING JOB COLLECTED | RemovedFromActiveStatus=True | " +
                 $"JobId={job.JobId} | " +
                 $"CardId={job.CardId} | " +
                 $"Grade={job.Grade}"

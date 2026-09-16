@@ -198,6 +198,10 @@ public static class GradingSaveManager
                                 readyDay
                         };
 
+                    if (parts.Length >= 8 && int.TryParse(parts[7], out int finalValue) && finalValue >= 0)
+                        job.FinalValue = finalValue;
+                    job.EnsureFinalValue(); // Old seven-field jobs retain their saved variant and grade.
+
                     GradingManager.AddLoadedJob(
                         job
                     );
@@ -283,7 +287,7 @@ public static class GradingSaveManager
                     $"{(int)job.Variant}|" +
                     $"{job.Grade}|" +
                     $"{job.SubmittedDay}|" +
-                    $"{job.ReadyDay}"
+                    $"{job.ReadyDay}|{job.FinalValue}"
                 );
             }
 

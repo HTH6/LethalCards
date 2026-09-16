@@ -30,6 +30,8 @@ public class CardInstanceData : NetworkBehaviour
         );
 
     private string cardId = "";
+    private readonly NetworkVariable<int> networkFinalValue = new(-1);
+    private int pendingFinalValue = -1;
 
     // ============================================================
     // PENDING INITIALIZATION
@@ -65,6 +67,7 @@ public class CardInstanceData : NetworkBehaviour
         networkUngradedValue.Value;
 
     public int FinalValue =>
+        networkFinalValue.Value >= 0 ? networkFinalValue.Value :
         CardGrading.CalculateGradedValue(
             UngradedValue,
             Grade
@@ -80,10 +83,13 @@ public class CardInstanceData : NetworkBehaviour
 
         ResolveCardId();
 
+        networkVariant.OnValueChanged += OnVariantChanged;
+
         networkGrade.OnValueChanged +=
             OnGradeChanged;
 
         networkUngradedValue.OnValueChanged += OnValueChanged;
+        networkFinalValue.OnValueChanged += OnValueChanged;
 
         // Natural scrap spawns have no booster/return initialization.
         if (IsServer && !hasPendingInitialization)
@@ -104,6 +110,7 @@ public class CardInstanceData : NetworkBehaviour
 
         RefreshGradeVisual();
         RefreshScrapValue();
+        UpdateCardDisplayName();
 
         Plugin.Log.LogInfo(
             $"CARD NETWORK SPAWN | " +
@@ -118,9 +125,11 @@ public class CardInstanceData : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        networkVariant.OnValueChanged -= OnVariantChanged;
         networkGrade.OnValueChanged -=
             OnGradeChanged;
         networkUngradedValue.OnValueChanged -= OnValueChanged;
+        networkFinalValue.OnValueChanged -= OnValueChanged;
 
         base.OnNetworkDespawn();
     }
@@ -138,6 +147,7 @@ public class CardInstanceData : NetworkBehaviour
 
         networkUngradedValue.Value =
             pendingUngradedValue;
+        networkFinalValue.Value = pendingFinalValue;
 
         hasPendingInitialization =
             false;
@@ -196,6 +206,7 @@ public class CardInstanceData : NetworkBehaviour
 
         pendingGrade =
             0;
+        pendingFinalValue = -1;
 
         hasPendingInitialization =
             true;
@@ -224,7 +235,8 @@ public class CardInstanceData : NetworkBehaviour
     public void InitializeLoaded(
         CardDefinition card,
         CardVariant variant,
-        int grade)
+        int grade,
+        int? finalValue = null)
     {
         if (card == null)
         {
@@ -274,6 +286,7 @@ public class CardInstanceData : NetworkBehaviour
 
         pendingGrade =
             grade;
+        pendingFinalValue = finalValue ?? -1;
 
         pendingUngradedValue =
             (int)System.Math.Round(
@@ -360,6 +373,22 @@ public class CardInstanceData : NetworkBehaviour
     }
 
     private void OnValueChanged(int previous, int current) => RefreshScrapValue();
+
+    private void OnVariantChanged(int previous, int current) => UpdateCardDisplayName();
+
+    private void UpdateCardDisplayName()
+    {
+        ResolveCardId();
+        CardDefinition? card = CardDatabase.GetById(cardId);
+        if (card == null)
+            return;
+
+        string displayName = CardNameFormatter.GetDisplayName(card.DisplayName, Variant);
+        // Scan nodes belong to this spawned instance. Never rename the shared Item:
+        // it is also used by registry lookup and vanilla save/load identity.
+        foreach (ScanNodeProperties scanNode in GetComponentsInChildren<ScanNodeProperties>(true))
+            scanNode.headerText = displayName;
+    }
 
     private void LateUpdate()
     {
@@ -493,6 +522,7 @@ public class CardInstanceData : NetworkBehaviour
 
         networkGrade.Value =
             CardGrading.RollGrade();
+        networkFinalValue.Value = -1;
 
         int finalValue =
             FinalValue;

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Configuration;
@@ -19,9 +19,9 @@ namespace LethalCards;
 [BepInDependency("evaisa.lethallib")]
 public class Plugin : BaseUnityPlugin
 {
-    public const string PluginGuid = "HunterHaaf.LethalCards";
+    public const string PluginGuid = "Hdaddy.LethalCards";
     public const string PluginName = "Lethal Cards";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.1.3";
 
     internal static ManualLogSource Log = null!;
 
@@ -31,11 +31,15 @@ public class Plugin : BaseUnityPlugin
 
     internal static Item? LightBoosterItem;
     internal static Item? HeavyBoosterItem;
+    internal static Item? BoosterBoxItem;
+    internal static Item? GoldenBoosterBoxItem;
 
     private Harmony? harmony;
 
     private ConfigEntry<int> lightBoosterSpawnWeight = null!;
     private ConfigEntry<int> heavyBoosterSpawnWeight = null!;
+    private ConfigEntry<int> boosterBoxSpawnWeight = null!;
+    private ConfigEntry<int> goldenBoosterBoxSpawnWeight = null!;
 
     // ============================================================
 
@@ -43,15 +47,37 @@ public class Plugin : BaseUnityPlugin
     {
         Log = Logger;
 
-        lightBoosterSpawnWeight = Config.Bind(
-            "Spawn Weights", "LightBoosterWeight", 12,
+        string configPath = Path.Combine(Paths.ConfigPath, "LethalCards.cfg");
+        string[] legacyConfigs = Directory.GetFiles(Paths.ConfigPath, "*.LethalCards.cfg");
+        // Preserve existing settings on upgrade without deleting the original file.
+        // Once the new file exists, it is the sole source of configuration.
+        if (!File.Exists(configPath) && legacyConfigs.Length == 1)
+        {
+            File.Copy(legacyConfigs[0], configPath);
+            Log.LogInfo("Copied existing Lethal Cards settings to LethalCards.cfg; the legacy file is no longer used.");
+        }
+        ConfigFile cardConfig = new ConfigFile(configPath, true);
+        // Rewrites legacy header comments without embedding an old plugin identifier.
+        cardConfig.Save();
+
+        lightBoosterSpawnWeight = cardConfig.Bind(
+            "Spawn Weights", "LightBoosterWeight", 30,
             new ConfigDescription(
                 "Relative scrap spawn weight for Light Booster packs on all levels. 0 disables natural spawning. Restart the game after changing this setting.",
                 new AcceptableValueRange<int>(0, int.MaxValue)));
-        heavyBoosterSpawnWeight = Config.Bind(
-            "Spawn Weights", "HeavyBoosterWeight", 4,
+        heavyBoosterSpawnWeight = cardConfig.Bind(
+            "Spawn Weights", "HeavyBoosterWeight", 15,
             new ConfigDescription(
                 "Relative scrap spawn weight for Heavy Booster packs on all levels. 0 disables natural spawning. Restart the game after changing this setting.",
+                new AcceptableValueRange<int>(0, int.MaxValue)));
+
+        boosterBoxSpawnWeight = cardConfig.Bind(
+            "Spawn Weights", "BoosterBoxWeight", 10,
+            new ConfigDescription("Relative scrap spawn weight for Standard Booster Boxes on all levels. 0 disables natural spawning. Restart after changing.",
+                new AcceptableValueRange<int>(0, int.MaxValue)));
+        goldenBoosterBoxSpawnWeight = cardConfig.Bind(
+            "Spawn Weights", "GoldenBoosterBoxWeight", 5,
+            new ConfigDescription("Relative scrap spawn weight for Golden Booster Boxes on all levels. 0 disables natural spawning. Restart after changing.",
                 new AcceptableValueRange<int>(0, int.MaxValue)));
 
         // Unity normally invokes these generated Netcode initializers.
@@ -100,7 +126,9 @@ public class Plugin : BaseUnityPlugin
         // CARD REGISTRATION
         // ========================================================
 
-        foreach (CardDefinition card in CardDatabase.Cards)
+        // The first seven registry entries are the original shipped cards.
+        // Keep their item indices, and those of packs/boxes, stable when adding the rest.
+        foreach (CardDefinition card in System.Linq.Enumerable.Take(CardDatabase.Cards, 7))
         {
             if (card.AssetName != null)
                 RegisterCard(bundle, card);
@@ -205,10 +233,23 @@ public class Plugin : BaseUnityPlugin
             heavyBoosterSpawnWeight.Value
         );
 
+        // Append boxes after existing items to preserve their vanilla save indices.
+        BoosterBoxItem = RegisterBoosterBox(bundle, "BoosterBoxItem", BoosterBoxType.Standard, boosterBoxSpawnWeight.Value);
+        GoldenBoosterBoxItem = RegisterBoosterBox(bundle, "GoldenBoosterBoxItem", BoosterBoxType.Golden, goldenBoosterBoxSpawnWeight.Value);
+
+        foreach (CardDefinition card in System.Linq.Enumerable.Skip(CardDatabase.Cards, 7))
+        {
+            if (card.AssetName != null)
+                RegisterCard(bundle, card);
+        }
+
         Log.LogInfo(
             // $"Finished registering {CardDatabase.Cards.Count} cards."
             $"CARD REGISTRY | Definitions={CardDatabase.Cards.Count} | " +
-            $"Implemented={System.Linq.Enumerable.Count(CardDatabase.GetImplementedCards())}"
+            $"Implemented={System.Linq.Enumerable.Count(CardDatabase.GetImplementedCards())} | " +
+            string.Join(" | ", System.Linq.Enumerable.Select(
+                (CardRarity[])System.Enum.GetValues(typeof(CardRarity)), rarity =>
+                    $"{rarity}={System.Linq.Enumerable.Count(CardDatabase.GetImplementedCards(), card => card.Rarity == rarity)}"))
         );
 
         //LogItemSaveMethods();
@@ -295,10 +336,11 @@ public class Plugin : BaseUnityPlugin
 
         PrepareCardPrefab(item.spawnPrefab);
         item.saveItemVariable = true;
+        item.canBeInspected = true;
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(item.spawnPrefab);
         Items.RegisterItem(item); // Cards are pack contents, not natural map scrap.
         card.AttachImplementedItem(item);
-        Log.LogInfo($"CARD ENABLED | Id={card.CardId} | SetNumber={card.SetNumber:D3} | Name={card.DisplayName} | Rarity={card.Rarity} | BaseValue={card.BaseScrapValue}");
+        Log.LogInfo($"CARD ENABLED | Id={card.CardId} | SetNumber={card.SetNumber:D3} | Name={card.DisplayName} | Rarity={card.Rarity} | BaseValue={card.BaseScrapValue} | CanBeInspected={item.canBeInspected}");
     }
 //     private void RegisterCard(
 //         AssetBundle bundle,
@@ -457,6 +499,71 @@ public class Plugin : BaseUnityPlugin
     // BOOSTER REGISTRATION
     // ============================================================
 
+    internal static bool EnsureActionTooltip(Item? item, string action)
+    {
+        action = BoosterActionTooltips.Format(action);
+        if (item == null)
+        {
+            Log.LogWarning($"ACTION TOOLTIP NOT CONFIGURED | Action=\"{action}\" | Item reference is null.");
+            return false;
+        }
+        if (item.toolTips != null && item.toolTips.Length > 0 && item.toolTips[0] == action)
+            return false;
+
+        // The first custom tip is the primary action. Preserve any additional asset-authored tips.
+        // Vanilla supplies Drop separately. Format uses the current vanilla use binding when available.
+        string[] tips = item.toolTips == null || item.toolTips.Length == 0
+            ? new string[1] : (string[])item.toolTips.Clone();
+        tips[0] = action;
+        item.toolTips = tips;
+        return true;
+    }
+
+    private Item? RegisterBoosterBox(AssetBundle bundle, string assetName, BoosterBoxType type, int spawnWeight)
+    {
+        Item item = bundle.LoadAsset<Item>(assetName);
+        if (item == null || item.spawnPrefab == null || item.spawnPrefab.GetComponent<NetworkObject>() == null)
+        {
+            Log.LogError($"BOOSTER BOX REGISTRATION FAILED | Asset={assetName} | Missing Item, spawn prefab, or NetworkObject.");
+            return null;
+        }
+        PhysicsProp original = item.spawnPrefab.GetComponent<PhysicsProp>();
+        if (original == null)
+        {
+            Log.LogError($"BOOSTER BOX REGISTRATION FAILED | Asset={assetName} | Missing PhysicsProp.");
+            return null;
+        }
+        BoosterBoxBehaviour box = item.spawnPrefab.AddComponent<BoosterBoxBehaviour>();
+        // Match the working BoosterPackBehaviour replacement: preserve the prefab's Item reference.
+        box.itemProperties = original.itemProperties;
+        if (box.itemProperties != item)
+            Log.LogWarning($"BOOSTER BOX ITEM REFERENCE MISMATCH | Type={type} | Loaded={item.name} | Original={original.itemProperties?.name}");
+        box.grabbable = original.grabbable;
+        box.isInFactory = original.isInFactory;
+        box.mainObjectRenderer = original.mainObjectRenderer;
+        box.BoxType = type;
+        bool tooltipCorrected = EnsureActionTooltip(item, "Open Box");
+        if (box.itemProperties != item)
+            tooltipCorrected |= EnsureActionTooltip(box.itemProperties, "Open Box");
+        Log.LogInfo($"BOOSTER BOX TOOLTIP | Type={type} | Display=\"{box.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
+        item.saveItemVariable = true; // Persist failed-opening lock; never changes Item.weight.
+        Object.DestroyImmediate(original);
+        Log.LogInfo($"BOOSTER BOX BEHAVIOUR ATTACHED | Type={type} | Prefab={item.spawnPrefab.name} | " +
+            $"ComponentType={box.GetType().FullName} | ItemProperties={box.itemProperties?.name} | Grabbable={box.grabbable} | " +
+            $"GrabbableComponents={item.spawnPrefab.GetComponents<GrabbableObject>().Length} | " +
+            $"ActivationComponent={item.spawnPrefab.GetComponent<GrabbableObject>()?.GetType().FullName} | " +
+            $"MainObjectRenderer={box.mainObjectRenderer?.name} | UseCooldown={box.useCooldown}");
+        if (item.spawnPrefab.GetComponent<NetworkItemConsumption>() == null)
+            item.spawnPrefab.AddComponent<NetworkItemConsumption>();
+        LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(item.spawnPrefab);
+        if (spawnWeight > 0)
+            Items.RegisterScrap(item, spawnWeight, Levels.LevelTypes.All);
+        else
+            Items.RegisterItem(item);
+        Log.LogInfo($"BOOSTER BOX REGISTERED | Type={type} | SpawnWeight={spawnWeight}");
+        return item;
+    }
+
     private void RegisterBooster(
         AssetBundle bundle,
         string assetName,
@@ -527,6 +634,11 @@ public class Plugin : BaseUnityPlugin
         boosterBehaviour.PackType =
             packType;
 
+        bool tooltipCorrected = EnsureActionTooltip(item, "Rip Pack");
+        if (boosterBehaviour.itemProperties != item)
+            tooltipCorrected |= EnsureActionTooltip(boosterBehaviour.itemProperties, "Rip Pack");
+        Log.LogInfo($"BOOSTER TOOLTIP | Type={packType} | Display=\"{boosterBehaviour.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
+
         Object.DestroyImmediate(
             oldPhysicsProp
         );
@@ -538,6 +650,8 @@ public class Plugin : BaseUnityPlugin
             $"Replaced PhysicsProp with " +
             $"BoosterPackBehaviour for {packType} pack."
         );
+
+        BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, packType, "BOOSTER PREPARED PREFAB");
 
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(
             item.spawnPrefab

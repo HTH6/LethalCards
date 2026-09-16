@@ -1,3 +1,5 @@
 is_global = true
 build_property.RootNamespace = LethalCards
 build_property.ProjectDir = Z:\LethalCompanyMods\LethalCards\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
