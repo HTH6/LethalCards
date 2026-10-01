@@ -157,13 +157,45 @@ public class BoosterPackBehaviour : PhysicsProp
             result
         );
 
-        // Only the server spawns physical card objects.
-        SpawnPackContents(
-            result
+        GetSpawnFrame(out Vector3 spawnOrigin, out Vector3 spawnRight);
+
+        NotifyRevealClientRpc(
+            result.IsGodPack,
+            result.Cards[0].Card.CardId, (int)result.Cards[0].Variant, (int)result.Cards[0].Card.Rarity,
+            result.Cards[1].Card.CardId, (int)result.Cards[1].Variant, (int)result.Cards[1].Card.Rarity,
+            result.Cards[2].Card.CardId, (int)result.Cards[2].Variant, (int)result.Cards[2].Card.Rarity,
+            new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams
+                {
+                    TargetClientIds = new[] { senderClientId }
+                }
+            }
         );
 
-        // Only the server removes the physical booster.
+        float revealDuration = BoosterRevealController.CalculateRevealDuration(
+            result.Cards[0].Card.Rarity,
+            result.Cards[1].Card.Rarity,
+            result.Cards[2].Card.Rarity);
+
+        DelayedBoosterCardSpawn.Schedule(result, spawnOrigin, spawnRight, revealDuration);
+
+        // The generated result is now owned by the delayed server spawner, so the
+        // real gameplay booster can leave the opener's hand immediately.
         RemoveBoosterPack();
+    }
+
+    [ClientRpc]
+    private void NotifyRevealClientRpc(bool isGodPack,
+        string card1, int variant1, int rarity1,
+        string card2, int variant2, int rarity2,
+        string card3, int variant3, int rarity3,
+        ClientRpcParams clientRpcParams = default)
+    {
+        BoosterRevealController.Begin(PackType, isGodPack,
+            card1, variant1, rarity1,
+            card2, variant2, rarity2,
+            card3, variant3, rarity3);
     }
 
     private void LogPackResult(
@@ -198,12 +230,10 @@ public class BoosterPackBehaviour : PhysicsProp
         );
     }
 
-    private void SpawnPackContents(
-        PackResult result)
+    private void GetSpawnFrame(
+        out Vector3 spawnOrigin,
+        out Vector3 spawnRight)
     {
-        Vector3 spawnOrigin;
-        Vector3 spawnRight;
-
         if (playerHeldBy != null)
         {
             // Spawn the cards a little in front
@@ -235,7 +265,13 @@ public class BoosterPackBehaviour : PhysicsProp
                 $"using pack position."
             );
         }
+    }
 
+    internal static void SpawnPackContents(
+        PackResult result,
+        Vector3 spawnOrigin,
+        Vector3 spawnRight)
+    {
         foreach (CardPull pull in result.Cards)
         {
             SpawnCard(
@@ -246,7 +282,7 @@ public class BoosterPackBehaviour : PhysicsProp
         }
     }
 
-    private void SpawnCard(
+    private static void SpawnCard(
         CardPull pull,
         Vector3 spawnOrigin,
         Vector3 spawnRight)
@@ -398,5 +434,34 @@ public class BoosterPackBehaviour : PhysicsProp
         if (!IsServer)
             return;
         GetComponent<NetworkItemConsumption>().ConsumeServer();
+    }
+}
+
+internal sealed class DelayedBoosterCardSpawn : MonoBehaviour
+{
+    private PackResult? result;
+    private Vector3 spawnOrigin;
+    private Vector3 spawnRight;
+    private float delay;
+
+    internal static void Schedule(PackResult result, Vector3 spawnOrigin, Vector3 spawnRight, float delay)
+    {
+        GameObject host = new("LethalCardsDelayedBoosterCardSpawn");
+        DelayedBoosterCardSpawn spawner = host.AddComponent<DelayedBoosterCardSpawn>();
+        spawner.result = result;
+        spawner.spawnOrigin = spawnOrigin;
+        spawner.spawnRight = spawnRight;
+        spawner.delay = delay;
+        spawner.StartCoroutine(spawner.SpawnAfterReveal());
+    }
+
+    private System.Collections.IEnumerator SpawnAfterReveal()
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer && result != null)
+            BoosterPackBehaviour.SpawnPackContents(result, spawnOrigin, spawnRight);
+
+        Destroy(gameObject);
     }
 }

@@ -24,9 +24,9 @@ The script uses the Mono.Cecil dependency in the local NuGet cache; override
 It checks generated RPC/variable registration and the installed game's pickup and
 lifecycle hooks. It does not simulate Unity or a network session.
 
-Current development settings remain: immediate returns, forced grade 10, and
-actual pedestal payment of $10. `FreeGradingForTesting` is still unused by the
-pedestal. One Light and one Heavy test pack spawn for the host each session.
+Current production settings remain: three-day grading turnaround, normal grade
+rolls and value calculation, and pedestal payment of $10. Legacy instant-return,
+forced-grade, and host debug-pack paths remain disabled.
 
 ## Host/client checklist
 

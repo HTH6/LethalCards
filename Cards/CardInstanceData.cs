@@ -7,6 +7,8 @@ namespace LethalCards.Cards;
 public class CardInstanceData : NetworkBehaviour
 {
     private TextMeshPro? gradeLabel;
+    private const int DefaultScanMinRange = 1;
+    private const int DefaultScanMaxRange = 13;
 
     private readonly NetworkVariable<int> networkVariant =
         new NetworkVariable<int>(
@@ -111,6 +113,8 @@ public class CardInstanceData : NetworkBehaviour
         RefreshGradeVisual();
         RefreshScrapValue();
         UpdateCardDisplayName();
+        RefreshVariantVisuals();
+        RefreshScanNodes();
 
         Plugin.Log.LogInfo(
             $"CARD NETWORK SPAWN | " +
@@ -229,6 +233,7 @@ public class CardInstanceData : NetworkBehaviour
             ApplyPendingInitialization();
 
             RefreshGradeVisual();
+            RefreshVariantVisuals();
         }
     }
 
@@ -265,22 +270,6 @@ public class CardInstanceData : NetworkBehaviour
             return;
         }
 
-        float variantMultiplier =
-            variant switch
-            {
-                CardVariant.Foil =>
-                    1.5f,
-
-                CardVariant.AlternateArt =>
-                    2.0f,
-
-                CardVariant.Misprint =>
-                    3.0f,
-
-                _ =>
-                    1.0f
-            };
-
         pendingVariant =
             variant;
 
@@ -291,7 +280,7 @@ public class CardInstanceData : NetworkBehaviour
         pendingUngradedValue =
             (int)System.Math.Round(
                 card.BaseScrapValue *
-                variantMultiplier
+                BalanceConfig.GetVariantValueMultiplier(variant)
             );
 
         hasPendingInitialization =
@@ -314,6 +303,7 @@ public class CardInstanceData : NetworkBehaviour
             ApplyPendingInitialization();
 
             RefreshGradeVisual();
+            RefreshVariantVisuals();
         }
     }
 
@@ -370,11 +360,28 @@ public class CardInstanceData : NetworkBehaviour
     {
         RefreshGradeVisual();
         RefreshScrapValue();
+        RefreshScanNodes();
     }
 
-    private void OnValueChanged(int previous, int current) => RefreshScrapValue();
+    private void OnValueChanged(int previous, int current)
+    {
+        RefreshScrapValue();
+        RefreshScanNodes();
+    }
 
-    private void OnVariantChanged(int previous, int current) => UpdateCardDisplayName();
+    private void OnVariantChanged(int previous, int current)
+    {
+        UpdateCardDisplayName();
+        RefreshVariantVisuals();
+        RefreshScanNodes();
+    }
+
+    private void RefreshVariantVisuals()
+    {
+        CardVariantVisuals visuals = GetComponent<CardVariantVisuals>();
+        if (visuals != null)
+            visuals.ApplyVariant(Variant);
+    }
 
     private void UpdateCardDisplayName()
     {
@@ -403,6 +410,31 @@ public class CardInstanceData : NetworkBehaviour
         GrabbableObject item = GetComponent<GrabbableObject>();
         if (item != null && item.scrapValue != FinalValue)
             item.SetScrapValue(FinalValue);
+    }
+
+    private void RefreshScanNodes()
+    {
+        ResolveCardId();
+        CardDefinition? card = CardDatabase.GetById(cardId);
+        string displayName = card != null
+            ? CardNameFormatter.GetDisplayName(card.DisplayName, Variant)
+            : "Lethal Card";
+        int scanNodeLayer = LayerMask.NameToLayer("ScanNode");
+
+        foreach (ScanNodeProperties scanNode in GetComponentsInChildren<ScanNodeProperties>(true))
+        {
+            scanNode.gameObject.SetActive(true);
+            scanNode.enabled = true;
+            if (scanNodeLayer >= 0)
+                scanNode.gameObject.layer = scanNodeLayer;
+            if (scanNode.minRange <= 0)
+                scanNode.minRange = DefaultScanMinRange;
+            if (scanNode.maxRange <= 0)
+                scanNode.maxRange = DefaultScanMaxRange;
+            scanNode.headerText = displayName;
+            scanNode.subText = $"Value: ${FinalValue}";
+            scanNode.scrapValue = FinalValue;
+        }
     }
 
     private void RefreshGradeVisual()

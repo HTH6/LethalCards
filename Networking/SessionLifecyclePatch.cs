@@ -34,6 +34,7 @@ public static class SessionLifecyclePatch
         // Comment this call out for normal release gameplay.
         // Natural facility registration is independent.
         // ==================================================
+        
         //DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
 
         CollectionNetworkSync.Initialize();

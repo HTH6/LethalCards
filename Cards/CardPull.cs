@@ -17,13 +17,7 @@ public class CardPull
     }
 
     public float VariantMultiplier =>
-        Variant switch
-        {
-            CardVariant.Foil => 1.5f,
-            CardVariant.AlternateArt => 2.0f,
-            CardVariant.Misprint => 3.0f,
-            _ => 1.0f
-        };
+        BalanceConfig.GetVariantValueMultiplier(Variant);
 
     public int UngradedValue
     {

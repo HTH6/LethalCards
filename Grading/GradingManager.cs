@@ -6,7 +6,7 @@ namespace LethalCards.Grading;
 public static class GradingManager
 {
     //public const int GradingCostPerCard = 10;
-    public const int GradingTurnaroundDays = 3;
+    public static int GradingTurnaroundDays => BalanceConfig.GradingTurnaroundDays;
 
     // ============================================================
     // TEMPORARY TEST SETTINGS
@@ -24,7 +24,7 @@ public static class GradingManager
             ? 0
             : 10;
     */
-    public const int GradingCostPerCard = 10;
+    public static int GradingCostPerCard => BalanceConfig.GradingCost;
 
     // ============================================================
 

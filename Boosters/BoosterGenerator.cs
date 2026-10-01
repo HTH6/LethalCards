@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using LethalCards;
 using LethalCards.Cards;
 
 namespace LethalCards.Boosters;
@@ -29,14 +30,14 @@ public static class BoosterGenerator
         // Each slot rolls directly against its own rarity table.
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.725, 0.925, 1.0, 1.0),
+                RollSlotCard(BoosterType.Light, 0),
                 0
             )
         );
 
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.69, 0.89, 0.965, 0.99),
+                RollSlotCard(BoosterType.Light, 1),
                 1
             )
         );
@@ -44,7 +45,7 @@ public static class BoosterGenerator
         // Slot 3 has the strongest Light distribution.
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.58, 0.78, 0.93, 0.98),
+                RollSlotCard(BoosterType.Light, 2),
                 2
             )
         );
@@ -58,8 +59,8 @@ public static class BoosterGenerator
 
     private static PackResult OpenHeavyPack()
     {
-        // 5% God Pack check occurs first.
-        if (Random.NextDouble() < 0.05)
+        // God Pack check occurs first and is Heavy-only.
+        if (Random.NextDouble() < BalanceConfig.HeavyGodPackChance)
         {
             return OpenGodPack();
         }
@@ -69,14 +70,14 @@ public static class BoosterGenerator
         // Normal Heavy packs use three separate slot distributions.
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.30, 0.85, 0.95, 1.0),
+                RollSlotCard(BoosterType.Heavy, 0),
                 0
             )
         );
 
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.25, 0.75, 0.90, 1.0),
+                RollSlotCard(BoosterType.Heavy, 1),
                 1
             )
         );
@@ -84,7 +85,7 @@ public static class BoosterGenerator
         // Slot 3 can roll any rarity; there is no guaranteed Rare+ hit.
         pulls.Add(
             CreatePull(
-                RollSlotCard(0.20, 0.60, 0.80, 0.95),
+                RollSlotCard(BoosterType.Heavy, 2),
                 2
             )
         );
@@ -103,9 +104,7 @@ public static class BoosterGenerator
         for (int i = 0; i < 3; i++)
         {
             CardRarity rarity =
-                Random.NextDouble() < 0.60
-                    ? CardRarity.UltraRare
-                    : CardRarity.SecretRare;
+                BalanceConfig.GodPackRarities.Roll(Random);
 
             pulls.Add(
                 CreatePull(
@@ -122,16 +121,11 @@ public static class BoosterGenerator
         );
     }
 
-    // Cumulative cutoffs in Common, Uncommon, Rare, Ultra Rare order.
-    // Secret Rare occupies the remaining interval; 1 excludes higher tiers.
     private static CardDefinition RollSlotCard(
-        double common, double uncommon, double rare, double ultraRare)
+        BoosterType type,
+        int slotIndex)
     {
-        double roll = Random.NextDouble();
-        CardRarity rarity = roll < common ? CardRarity.Common :
-            roll < uncommon ? CardRarity.Uncommon :
-            roll < rare ? CardRarity.Rare :
-            roll < ultraRare ? CardRarity.UltraRare : CardRarity.SecretRare;
+        CardRarity rarity = BalanceConfig.GetRarityTable(type, slotIndex).Roll(Random);
         return RollCardFromRarity(rarity);
     }
 
@@ -236,22 +230,10 @@ public static class BoosterGenerator
     // REAL VARIENT ROLL HERE
     private static CardVariant RollVariant()
     {
-        double roll = Random.NextDouble();
-
-        CardVariant variant;
-
-        if (roll < 0.01)
-            variant = CardVariant.Misprint;
-        else if (roll < 0.06)
-            variant = CardVariant.AlternateArt;
-        else if (roll < 0.31)
-            variant = CardVariant.Foil;
-        else
-            variant = CardVariant.Standard;
+        CardVariant variant = BalanceConfig.Variants.Roll(Random);
 
         Plugin.Log.LogInfo(
             $"VARIANT ROLL | " +
-            $"Roll={roll:F4} | " +
             $"Result={variant}"
         );
 

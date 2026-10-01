@@ -278,7 +278,7 @@ public static class GradingPedestalSpawner
             0.5f;
 
         trigger.hoverTip =
-            "Submit card for grading ($10) : [E]";
+            $"Submit card for grading (${GradingManager.GradingCostPerCard}) : [E]";
 
         trigger.onInteract =
             new InteractEvent();

@@ -1,0 +1,813 @@
+using System.Collections;
+using UnityEngine;
+
+public enum TestRevealRarity
+{
+    Common,
+    Uncommon,
+    Rare,
+    UltraRare,
+    SecretRare
+}
+
+public class CardRevealPrototype : MonoBehaviour
+{
+    [Header("Cards")]
+    public Transform card1;
+    public Transform card2;
+    public Transform card3;
+
+    [Header("Reveal Points")]
+    public Transform cardStartPoint;
+    public Transform cardRevealPoint;
+    public Transform cardDisplayPoint;
+
+    [Header("Hold Points")]
+    public Transform card1HoldPoint;
+    public Transform card2HoldPoint;
+
+    [Header("Timing")]
+    public float pullDuration = 0.6f;
+    public float displayMoveDuration = 0.3f;
+    public float pauseBeforeFlip = 0.2f;
+    public float flipDuration = 0.35f;
+    public float revealHoldDuration = 0.6f;
+    public float moveAsideDuration = 0.35f;
+    public float betweenCardsDelay = 0.2f;
+
+    [Header("Big Hit Timing")]
+    public float bigHitBuildUpDuration = 1.25f;
+    public float bigHitPullDuration = 1.2f;
+
+    [Header("Ultra Rare Reveal Timing")]
+    public float ultraPauseBeforeFlip = 0.45f;
+    public float ultraFlipDuration = 0.5f;
+
+    [Header("Secret Rare Reveal Timing")]
+    public float secretPauseBeforeFlip = 0.75f;
+    public float secretFlipDuration = 0.7f;
+
+    [Header("Reveal Scale Punch")]
+    public float ultraScalePunch = 1.08f;
+    public float secretScalePunch = 1.12f;
+
+    public float scalePunchUpDuration = 0.08f;
+    public float scalePunchReturnDuration = 0.14f;
+
+    [Header("Rarity Testing")]
+    public TestRevealRarity card1TestRarity = TestRevealRarity.Common;
+    public TestRevealRarity card2TestRarity = TestRevealRarity.Uncommon;
+    public TestRevealRarity card3TestRarity = TestRevealRarity.UltraRare;
+
+    [Header("Rumble")]
+    public Transform packRumbleRoot;
+    public float ultraRumbleStrength = 0.0025f;
+    public float secretRumbleStrength = 0.005f;
+
+    [Header("Big Hit Particles")]
+    public ParticleSystem hitSparkles;
+    public float ultraSparkleRate = 60f;
+    public float secretSparkleRate = 60f;
+
+    [Header("Reveal Impact Particles")]
+    public ParticleSystem ultraRevealBurst;
+    public ParticleSystem secretRevealBurst;
+    public ParticleSystem secretRainbowRing;
+
+    public ParticleSystem ultraRevealFlash;
+    public ParticleSystem secretRevealFlash;
+    public ParticleSystem ultraRevealGlow;
+    public ParticleSystem secretRevealGlow;
+
+    [Header("Reveal Audio")]
+    public AudioSource revealSfxSource;
+    public AudioSource anticipationAudioSource;
+
+    [Header("Pack Audio")]
+    public AudioClip boosterOpenSound;
+    public AudioClip godPackSound;
+
+    [Header("Reveal Audio Timing")]
+
+    [Range(0f, 1f)]
+    public float revealAudioTriggerPoint = 0.60f;
+
+    // Starts the sound slightly early to compensate
+    // for perceived/audio playback latency.
+    public float revealAudioLeadTime = 0.15f;
+
+    [Header("Card Reveal Audio")]
+    public AudioClip commonUncommonRevealSound;
+    public AudioClip rareRevealSound;
+    public AudioClip ultraRevealSound;
+    public AudioClip secretRevealSound;
+
+    [Header("Anticipation Audio")]
+    public AudioClip ultraAnticipationSound;
+    public AudioClip secretAnticipationSound;
+
+    [Header("Audio Volumes")]
+    [Range(0f, 1f)]
+    public float packOpenVolume = 0.7f;
+
+    [Range(0f, 1f)]
+    public float cardRevealVolume = 0.75f;
+
+    [Range(0f, 1f)]
+    public float bigHitRevealVolume = 1f;
+
+    [Range(0f, 1f)]
+    public float anticipationVolume = 0.75f;
+
+    [Header("Big Hit Particle Colors")]
+    public Color ultraSparkleColor =
+        new Color(1f, 0.75f, 0.15f, 1f);
+
+    public Gradient secretSparkleGradient;
+
+    private bool isRevealing;
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.R) && !isRevealing)
+        {
+            StartCoroutine(RevealPack());
+        }
+    }
+
+    private IEnumerator RevealPack()
+    {
+        isRevealing = true;
+
+        // =========================
+        // CARD 1
+        // =========================
+        yield return RevealCard(
+            card1,
+            card1TestRarity,
+            false);
+
+        yield return MoveCard(
+            card1,
+            card1.position,
+            card1HoldPoint.position,
+            moveAsideDuration);
+
+        yield return new WaitForSeconds(
+            betweenCardsDelay);
+
+        // =========================
+        // CARD 2
+        // =========================
+        yield return RevealCard(
+            card2,
+            card2TestRarity,
+            false);
+
+        yield return MoveCard(
+            card2,
+            card2.position,
+            card2HoldPoint.position,
+            moveAsideDuration);
+
+        yield return new WaitForSeconds(
+            betweenCardsDelay);
+
+        // =========================
+        // CARD 3
+        // =========================
+        yield return RevealCard(
+            card3,
+            card3TestRarity,
+            true);
+
+        // Card 3 remains centered.
+
+        isRevealing = false;
+    }
+
+    private IEnumerator RevealCard(
+        Transform card,
+        TestRevealRarity rarity,
+        bool isFinalCard)
+    {
+        bool isUltraRare =
+            rarity == TestRevealRarity.UltraRare;
+
+        bool isSecretRare =
+            rarity == TestRevealRarity.SecretRare;
+
+        // Start with normal-card timing.
+        float actualPullDuration =
+            pullDuration;
+
+        float actualPauseBeforeFlip =
+            pauseBeforeFlip;
+
+        float actualFlipDuration =
+            flipDuration;
+
+        // =========================
+        // ULTRA RARE
+        // =========================
+        if (isUltraRare)
+        {
+            yield return BigHitBuildUp(
+                rarity,
+                isFinalCard);
+
+            actualPullDuration =
+                bigHitPullDuration;
+
+            actualPauseBeforeFlip =
+                ultraPauseBeforeFlip;
+
+            actualFlipDuration =
+                ultraFlipDuration;
+        }
+
+        // =========================
+        // SECRET RARE
+        // =========================
+        else if (isSecretRare)
+        {
+            yield return BigHitBuildUp(
+                rarity,
+                isFinalCard);
+
+            // Slightly slower pull than Ultra Rare.
+            actualPullDuration =
+                bigHitPullDuration * 1.15f;
+
+            actualPauseBeforeFlip =
+                secretPauseBeforeFlip;
+
+            actualFlipDuration =
+                secretFlipDuration;
+        }
+
+        card.gameObject.SetActive(true);
+        card.SetParent(null);
+
+        // Start inside the booster.
+        card.position =
+            cardStartPoint.position;
+
+        // Back faces player first.
+        card.rotation =
+            cardStartPoint.rotation *
+            Quaternion.Euler(
+                0f,
+                180f,
+                0f);
+
+        // Pull upward from booster.
+        yield return MoveCard(
+            card,
+            cardStartPoint.position,
+            cardRevealPoint.position,
+            actualPullDuration);
+
+        // Move into center display position.
+        yield return MoveCard(
+            card,
+            cardRevealPoint.position,
+            cardDisplayPoint.position,
+            displayMoveDuration);
+
+        // Rarity-specific suspense before flip.
+        yield return new WaitForSeconds(
+            actualPauseBeforeFlip);
+
+        // Flip from back to front.
+        // Start the reveal sound during the flip so the
+        // audio lands as the card face becomes visible.
+        StartCoroutine(
+            PlayRevealAudioDuringFlip(
+                rarity,
+                actualFlipDuration));
+
+        // Flip from back to front.
+        yield return FlipCard(
+            card,
+            actualFlipDuration);
+
+        // Fire rarity-specific visual impact once
+        // the card has completed the flip.
+        PlayRevealImpact(rarity);
+
+        if (isUltraRare || isSecretRare)
+        {
+            StartCoroutine(
+                DelayedCardScalePunch(
+                    card,
+                    rarity));
+        }
+
+        yield return new WaitForSeconds(
+            revealHoldDuration);
+    }
+
+    private IEnumerator DelayedCardScalePunch(
+        Transform card,
+        TestRevealRarity rarity)
+    {
+        // Give the reveal flash a few frames to appear
+        // before the card punches forward.
+        yield return new WaitForSeconds(0.04f);
+
+        yield return CardScalePunch(
+            card,
+            rarity);
+    }
+
+    private IEnumerator PlayRevealAudioDuringFlip(
+        TestRevealRarity rarity,
+        float actualFlipDuration)
+    {
+        float triggerPoint =
+            Mathf.Clamp01(revealAudioTriggerPoint);
+
+        float delay =
+            (actualFlipDuration * triggerPoint) -
+            revealAudioLeadTime;
+
+        // Never allow a negative wait time.
+        delay =
+            Mathf.Max(0f, delay);
+
+        if (delay > 0f)
+        {
+            yield return new WaitForSeconds(delay);
+        }
+
+        PlayRevealAudio(rarity);
+    }
+
+    private void PlayRevealImpact(TestRevealRarity rarity)
+    {
+        if (rarity == TestRevealRarity.UltraRare)
+        {
+            if (ultraRevealBurst != null)
+            {
+                ultraRevealBurst.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                ultraRevealBurst.Play();
+            }
+
+                if (ultraRevealFlash != null)
+            {
+                ultraRevealFlash.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                ultraRevealFlash.Play();
+            }
+
+                if (ultraRevealGlow != null)
+            {
+                ultraRevealGlow.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                ultraRevealGlow.Play();
+            }
+        }
+        else if (rarity == TestRevealRarity.SecretRare)
+        {
+            if (secretRevealBurst != null)
+            {
+                secretRevealBurst.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                secretRevealBurst.Play();
+            }
+
+            if (secretRainbowRing != null)
+            {
+                secretRainbowRing.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                secretRainbowRing.Play();
+            }
+            if (secretRevealFlash != null)
+            {
+                secretRevealFlash.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                secretRevealFlash.Play();
+            }
+                if (secretRevealGlow != null)
+            {
+                secretRevealGlow.Stop(
+                    true,
+                    ParticleSystemStopBehavior.StopEmittingAndClear);
+
+                secretRevealGlow.Play();
+            }
+        }
+    }
+    private IEnumerator BigHitBuildUp(
+        TestRevealRarity rarity,
+        bool isFinalCard)
+    {
+        float duration =
+            bigHitBuildUpDuration;
+
+        float rumbleStrength =
+            ultraRumbleStrength;
+
+        float sparkleRate =
+            ultraSparkleRate;
+
+        // =========================
+        // SECRET RARE
+        // =========================
+        // Secret Rare gets a longer and stronger buildup.
+        if (rarity == TestRevealRarity.SecretRare)
+        {
+            duration *= 1.35f;
+
+            rumbleStrength =
+                secretRumbleStrength;
+
+            sparkleRate =
+                secretSparkleRate;
+        }
+
+        // =========================
+        // FINAL CARD BONUS
+        // =========================
+        // Final card gets a little extra intensity.
+        if (isFinalCard)
+        {
+            duration *= 1.15f;
+            rumbleStrength *= 1.15f;
+            sparkleRate *= 1.15f;
+        }
+
+        // =========================
+        // ANTICIPATION AUDIO
+        // =========================
+        // Start the anticipation sound at the same moment
+        // as the visual buildup.
+        StartAnticipationAudio(
+            rarity,
+            duration);
+
+        // Store the pack's original position so the rumble
+        // can safely return it when the buildup finishes.
+        Vector3 originalPosition =
+            packRumbleRoot.localPosition;
+
+        // =========================
+        // BUILDUP PARTICLES
+        // =========================
+        if (hitSparkles != null)
+        {
+            var emission =
+                hitSparkles.emission;
+
+            emission.rateOverTime =
+                sparkleRate;
+
+            var main =
+                hitSparkles.main;
+
+            var colorOverLifetime =
+                hitSparkles.colorOverLifetime;
+
+            if (rarity == TestRevealRarity.UltraRare)
+            {
+                // Gold particles.
+                main.startColor =
+                    ultraSparkleColor;
+
+                colorOverLifetime.enabled =
+                    false;
+            }
+            else if (rarity == TestRevealRarity.SecretRare)
+            {
+                // White base so the Secret Rare gradient
+                // controls the final particle colors.
+                main.startColor =
+                    Color.white;
+
+                colorOverLifetime.enabled =
+                    true;
+
+                colorOverLifetime.color =
+                    new ParticleSystem.MinMaxGradient(
+                        secretSparkleGradient);
+            }
+
+            // Make sure every buildup begins cleanly.
+            hitSparkles.Stop(
+                true,
+                ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            hitSparkles.Play();
+        }
+
+        // =========================
+        // RUMBLE
+        // =========================
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            Vector2 randomOffset =
+                Random.insideUnitCircle *
+                rumbleStrength;
+
+            packRumbleRoot.localPosition =
+                originalPosition +
+                new Vector3(
+                    randomOffset.x,
+                    randomOffset.y,
+                    0f);
+
+            elapsed +=
+                Time.deltaTime;
+
+            yield return null;
+        }
+
+        // =========================
+        // CLEANUP
+        // =========================
+
+        // Restore the pack exactly to its original position.
+        packRumbleRoot.localPosition =
+            originalPosition;
+
+        // Stop creating new sparkles, but allow existing
+        // particles to finish naturally.
+        if (hitSparkles != null)
+        {
+            hitSparkles.Stop(
+                true,
+                ParticleSystemStopBehavior.StopEmitting);
+        }
+
+        // Stop the anticipation sound so it cannot bleed
+        // into the card pull/reveal.
+        if (anticipationAudioSource != null)
+        {
+            anticipationAudioSource.Stop();
+
+            // Restore normal pitch for the next use.
+            anticipationAudioSource.pitch =
+                1f;
+
+            anticipationAudioSource.clip =
+                null;
+        }
+    }
+
+    private void StartAnticipationAudio(
+        TestRevealRarity rarity,
+        float buildupDuration)
+    {
+        if (anticipationAudioSource == null)
+            return;
+
+        AudioClip anticipationClip = null;
+
+        if (rarity == TestRevealRarity.UltraRare)
+        {
+            anticipationClip =
+                ultraAnticipationSound;
+        }
+        else if (rarity == TestRevealRarity.SecretRare)
+        {
+            anticipationClip =
+                secretAnticipationSound;
+        }
+
+        if (anticipationClip == null)
+            return;
+
+        anticipationAudioSource.Stop();
+
+        anticipationAudioSource.clip =
+            anticipationClip;
+
+        anticipationAudioSource.volume =
+            anticipationVolume;
+
+        // Adjust playback speed slightly so the riser
+        // ends at approximately the same time as the buildup.
+        if (buildupDuration > 0.01f &&
+            anticipationClip.length > 0.01f)
+        {
+            anticipationAudioSource.pitch =
+                Mathf.Clamp(
+                    anticipationClip.length /
+                    buildupDuration,
+                    0.85f,
+                    1.20f);
+        }
+        else
+        {
+            anticipationAudioSource.pitch =
+                1f;
+        }
+
+        anticipationAudioSource.Play();
+    }
+    private IEnumerator CardScalePunch(
+        Transform card,
+        TestRevealRarity rarity)
+    {
+        Vector3 originalScale =
+            card.localScale;
+
+        float punchMultiplier =
+            ultraScalePunch;
+
+        if (rarity == TestRevealRarity.SecretRare)
+        {
+            punchMultiplier =
+                secretScalePunch;
+        }
+
+        Vector3 punchScale =
+            originalScale *
+            punchMultiplier;
+
+        // =========================
+        // QUICK PUNCH OUT
+        // =========================
+        float elapsed = 0f;
+
+        while (elapsed < scalePunchUpDuration)
+        {
+            float t =
+                elapsed / scalePunchUpDuration;
+
+            t = Mathf.SmoothStep(
+                0f,
+                1f,
+                t);
+
+            card.localScale =
+                Vector3.Lerp(
+                    originalScale,
+                    punchScale,
+                    t);
+
+            elapsed += Time.deltaTime;
+
+            yield return null;
+        }
+
+        card.localScale =
+            punchScale;
+
+        // =========================
+        // SETTLE BACK
+        // =========================
+        elapsed = 0f;
+
+        while (elapsed < scalePunchReturnDuration)
+        {
+            float t =
+                elapsed / scalePunchReturnDuration;
+
+            t = Mathf.SmoothStep(
+                0f,
+                1f,
+                t);
+
+            card.localScale =
+                Vector3.Lerp(
+                    punchScale,
+                    originalScale,
+                    t);
+
+            elapsed += Time.deltaTime;
+
+            yield return null;
+        }
+
+        // Guarantee exact original scale.
+        card.localScale =
+            originalScale;
+    }
+    private IEnumerator MoveCard(
+        Transform card,
+        Vector3 start,
+        Vector3 end,
+        float duration)
+    {
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            float t =
+                elapsed / duration;
+
+            t = Mathf.SmoothStep(
+                0f,
+                1f,
+                t);
+
+            card.position =
+                Vector3.Lerp(
+                    start,
+                    end,
+                    t);
+
+            elapsed += Time.deltaTime;
+
+            yield return null;
+        }
+
+        card.position = end;
+    }
+
+    private IEnumerator FlipCard(
+        Transform card,
+        float duration)
+    {
+        Quaternion startRotation =
+            card.rotation;
+
+        Quaternion endRotation =
+            startRotation *
+            Quaternion.Euler(
+                0f,
+                180f,
+                0f);
+
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            float t =
+                elapsed / duration;
+
+            t = Mathf.SmoothStep(
+                0f,
+                1f,
+                t);
+
+            card.rotation =
+                Quaternion.Slerp(
+                    startRotation,
+                    endRotation,
+                    t);
+
+            elapsed += Time.deltaTime;
+
+            yield return null;
+        }
+
+        card.rotation =
+            endRotation;
+    }
+
+    private void PlayRevealAudio(TestRevealRarity rarity)
+    {
+        if (revealSfxSource == null)
+            return;
+
+        AudioClip clip = null;
+        float volume = cardRevealVolume;
+
+        switch (rarity)
+        {
+            case TestRevealRarity.Common:
+            case TestRevealRarity.Uncommon:
+                clip = commonUncommonRevealSound;
+                break;
+
+            case TestRevealRarity.Rare:
+                clip = rareRevealSound;
+                break;
+
+            case TestRevealRarity.UltraRare:
+                clip = ultraRevealSound;
+                volume = bigHitRevealVolume;
+                break;
+
+            case TestRevealRarity.SecretRare:
+                clip = secretRevealSound;
+                volume = bigHitRevealVolume;
+                break;
+        }
+
+        if (clip != null)
+        {
+            revealSfxSource.PlayOneShot(
+                clip,
+                volume);
+        }
+    }
+}

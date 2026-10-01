@@ -8,32 +8,12 @@ public static class CardGrading
 
     public static int RollGrade()
     {
-        double roll = Random.NextDouble();
-
-        // 5% chance for a perfect 10.
-        if (roll < 0.05)
-            return 10;
-
-        // Remaining 95% is distributed evenly across grades 1-9.
-        return Random.Next(1, 10);
+        return BalanceConfig.GradeChances.Roll(Random);
     }
 
     public static float GetMultiplier(int grade)
     {
-        return grade switch
-        {
-            1 => 0.0f,
-            2 => 0.2f,
-            3 => 0.35f,
-            4 => 0.5f,
-            5 => 0.65f,
-            6 => 0.8f,
-            7 => 1.0f,
-            8 => 1.5f,
-            9 => 2.5f,
-            10 => 5.0f,
-            _ => 1.0f
-        };
+        return BalanceConfig.GetGradeMultiplier(grade);
     }
 
     public static int CalculateGradedValue(

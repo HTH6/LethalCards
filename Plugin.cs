@@ -36,11 +36,6 @@ public class Plugin : BaseUnityPlugin
 
     private Harmony? harmony;
 
-    private ConfigEntry<int> lightBoosterSpawnWeight = null!;
-    private ConfigEntry<int> heavyBoosterSpawnWeight = null!;
-    private ConfigEntry<int> boosterBoxSpawnWeight = null!;
-    private ConfigEntry<int> goldenBoosterBoxSpawnWeight = null!;
-
     // ============================================================
 
     private void Awake()
@@ -59,26 +54,7 @@ public class Plugin : BaseUnityPlugin
         ConfigFile cardConfig = new ConfigFile(configPath, true);
         // Rewrites legacy header comments without embedding an old plugin identifier.
         cardConfig.Save();
-
-        lightBoosterSpawnWeight = cardConfig.Bind(
-            "Spawn Weights", "LightBoosterWeight", 30,
-            new ConfigDescription(
-                "Relative scrap spawn weight for Light Booster packs on all levels. 0 disables natural spawning. Restart the game after changing this setting.",
-                new AcceptableValueRange<int>(0, int.MaxValue)));
-        heavyBoosterSpawnWeight = cardConfig.Bind(
-            "Spawn Weights", "HeavyBoosterWeight", 15,
-            new ConfigDescription(
-                "Relative scrap spawn weight for Heavy Booster packs on all levels. 0 disables natural spawning. Restart the game after changing this setting.",
-                new AcceptableValueRange<int>(0, int.MaxValue)));
-
-        boosterBoxSpawnWeight = cardConfig.Bind(
-            "Spawn Weights", "BoosterBoxWeight", 10,
-            new ConfigDescription("Relative scrap spawn weight for Standard Booster Boxes on all levels. 0 disables natural spawning. Restart after changing.",
-                new AcceptableValueRange<int>(0, int.MaxValue)));
-        goldenBoosterBoxSpawnWeight = cardConfig.Bind(
-            "Spawn Weights", "GoldenBoosterBoxWeight", 5,
-            new ConfigDescription("Relative scrap spawn weight for Golden Booster Boxes on all levels. 0 disables natural spawning. Restart after changing.",
-                new AcceptableValueRange<int>(0, int.MaxValue)));
+        BalanceConfig.Load(cardConfig);
 
         // Unity normally invokes these generated Netcode initializers.
         foreach (System.Type type in Assembly.GetExecutingAssembly().GetTypes())
@@ -121,6 +97,8 @@ public class Plugin : BaseUnityPlugin
         Log.LogInfo(
             "Asset bundle loaded successfully."
         );
+
+        BoosterRevealAssets.Load(bundle);
 
         // ========================================================
         // CARD REGISTRATION
@@ -222,7 +200,7 @@ public class Plugin : BaseUnityPlugin
             "LightBoosterPackItem",
             BoosterType.Light,
             // 9999 // Retained test spawn weight.
-            lightBoosterSpawnWeight.Value
+            BalanceConfig.LightBoosterSpawnWeight
         );
 
         RegisterBooster(
@@ -230,12 +208,12 @@ public class Plugin : BaseUnityPlugin
             "HeavyBoosterPackItem",
             BoosterType.Heavy,
             // 9999 // Retained test spawn weight.
-            heavyBoosterSpawnWeight.Value
+            BalanceConfig.HeavyBoosterSpawnWeight
         );
 
         // Append boxes after existing items to preserve their vanilla save indices.
-        BoosterBoxItem = RegisterBoosterBox(bundle, "BoosterBoxItem", BoosterBoxType.Standard, boosterBoxSpawnWeight.Value);
-        GoldenBoosterBoxItem = RegisterBoosterBox(bundle, "GoldenBoosterBoxItem", BoosterBoxType.Golden, goldenBoosterBoxSpawnWeight.Value);
+        BoosterBoxItem = RegisterBoosterBox(bundle, "BoosterBoxItem", BoosterBoxType.Standard, BalanceConfig.StandardBoosterBoxSpawnWeight);
+        GoldenBoosterBoxItem = RegisterBoosterBox(bundle, "GoldenBoosterBoxItem", BoosterBoxType.Golden, BalanceConfig.GoldenBoosterBoxSpawnWeight);
 
         foreach (CardDefinition card in System.Linq.Enumerable.Skip(CardDatabase.Cards, 7))
         {
@@ -302,6 +280,9 @@ public class Plugin : BaseUnityPlugin
             prefab.AddComponent<GradingReturnData>();
         if (prefab.GetComponent<NetworkItemConsumption>() == null)
             prefab.AddComponent<NetworkItemConsumption>();
+
+        if (prefab.GetComponent<CardVariantVisuals>() == null)
+            prefab.AddComponent<CardVariantVisuals>();
 
         if (instanceData == null)
         {
@@ -527,6 +508,7 @@ public class Plugin : BaseUnityPlugin
             Log.LogError($"BOOSTER BOX REGISTRATION FAILED | Asset={assetName} | Missing Item, spawn prefab, or NetworkObject.");
             return null;
         }
+        SetFixedScrapValue(item, BalanceConfig.GetBoosterBoxValue(type));
         PhysicsProp original = item.spawnPrefab.GetComponent<PhysicsProp>();
         if (original == null)
         {
@@ -591,6 +573,8 @@ public class Plugin : BaseUnityPlugin
 
             return;
         }
+
+        SetFixedScrapValue(item, BalanceConfig.GetBoosterValue(packType));
 
         Log.LogInfo(
             $"BOOSTER DATA | " +
@@ -683,5 +667,12 @@ public class Plugin : BaseUnityPlugin
             $"Registered {packType} booster | " +
             $"Configured Spawn Weight: {spawnWeight}"
         );
+    }
+
+    private static void SetFixedScrapValue(Item item, int value)
+    {
+        int safeValue = System.Math.Max(0, value);
+        item.minValue = safeValue;
+        item.maxValue = safeValue;
     }
 }

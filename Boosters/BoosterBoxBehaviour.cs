@@ -87,8 +87,9 @@ public class BoosterBoxBehaviour : PhysicsProp
             for (int i = 0; i < packs.Length; i++)
             {
                 // Four independent server rolls for Standard; Golden performs no type roll.
-                types[i] = BoxType == BoosterBoxType.Golden || UnityEngine.Random.value < 0.10f
-                    ? BoosterType.Heavy : BoosterType.Light;
+                types[i] = BoxType == BoosterBoxType.Golden
+                    ? BoosterType.Heavy
+                    : BalanceConfig.StandardBoxPackMix.Roll(UnityEngine.Random.value);
                 Item? item = types[i] == BoosterType.Heavy ? Plugin.HeavyBoosterItem : Plugin.LightBoosterItem;
                 if (item == null || item.spawnPrefab == null ||
                     item.spawnPrefab.GetComponent<NetworkObject>() == null ||

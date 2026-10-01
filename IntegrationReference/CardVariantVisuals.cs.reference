@@ -1,0 +1,235 @@
+using UnityEngine;
+
+public enum CardVisualVariant
+{
+    Standard,
+    Foil,
+    AlternateArt,
+    Misprint
+}
+
+public class CardVariantVisuals : MonoBehaviour
+{
+    [Header("Card References")]
+    [SerializeField]
+    private Transform cardFront;
+
+    [SerializeField]
+    private MeshRenderer cardFrontRenderer;
+
+    [SerializeField]
+    private GameObject foilOverlay;
+
+    [Header("Alternate Art")]
+    [Tooltip(
+        "Shared material using the AltArt inversion Shader Graph. " +
+        "The card's normal Base Map will automatically be copied into it."
+    )]
+    [SerializeField]
+    private Material alternateArtMaterialTemplate;
+
+    [Tooltip(
+        "Texture property used by the Alt Art Shader Graph."
+    )]
+    [Header("Alternate Art Texture Properties")]
+
+    [SerializeField]
+    private string normalMaterialBaseMapProperty =
+        "_BaseColorMap";
+
+    [SerializeField]
+    private string alternateArtBaseMapProperty =
+        "_BaseMap";
+
+    [Header("Testing")]
+    [SerializeField]
+    private bool applyTestVariantOnStart = true;
+
+    [SerializeField]
+    private CardVisualVariant testVariant =
+        CardVisualVariant.Standard;
+
+    private Quaternion normalFrontRotation;
+    private Material normalFrontMaterial;
+    private Material alternateArtRuntimeMaterial;
+
+    private void Awake()
+    {
+        CacheOriginalState();
+        CreateAlternateArtMaterial();
+    }
+
+    private void Start()
+    {
+        if (applyTestVariantOnStart)
+        {
+            ApplyVariant(testVariant);
+        }
+        else
+        {
+            ApplyVariant(
+                CardVisualVariant.Standard);
+        }
+    }
+
+    private void CacheOriginalState()
+    {
+        if (cardFront != null)
+        {
+            normalFrontRotation =
+                cardFront.localRotation;
+        }
+
+        if (cardFrontRenderer != null)
+        {
+            normalFrontMaterial =
+                cardFrontRenderer.sharedMaterial;
+        }
+    }
+
+    private void CreateAlternateArtMaterial()
+    {
+        if (alternateArtMaterialTemplate == null ||
+            normalFrontMaterial == null)
+        {
+            return;
+        }
+
+        // Create a unique runtime material instance.
+        alternateArtRuntimeMaterial =
+            new Material(
+                alternateArtMaterialTemplate);
+
+        // Get the card artwork from the normal HDRP/Lit material.
+        Texture originalTexture = null;
+
+        if (normalFrontMaterial.HasProperty(
+                normalMaterialBaseMapProperty))
+        {
+            originalTexture =
+                normalFrontMaterial.GetTexture(
+                    normalMaterialBaseMapProperty);
+        }
+
+        // Copy that artwork into the Alt Art inversion shader.
+        if (originalTexture != null &&
+            alternateArtRuntimeMaterial.HasProperty(
+                alternateArtBaseMapProperty))
+        {
+            alternateArtRuntimeMaterial.SetTexture(
+                alternateArtBaseMapProperty,
+                originalTexture);
+
+            // Also preserve the original texture tiling/offset.
+            Vector2 scale =
+                normalFrontMaterial.GetTextureScale(
+                    normalMaterialBaseMapProperty);
+
+            Vector2 offset =
+                normalFrontMaterial.GetTextureOffset(
+                    normalMaterialBaseMapProperty);
+
+            alternateArtRuntimeMaterial.SetTextureScale(
+                alternateArtBaseMapProperty,
+                scale);
+
+            alternateArtRuntimeMaterial.SetTextureOffset(
+                alternateArtBaseMapProperty,
+                offset);
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"Could not copy card texture for Alt Art on {gameObject.name}.");
+        }
+    }
+
+    public void ApplyVariant(
+        CardVisualVariant variant)
+    {
+        ResetVariantVisuals();
+
+        switch (variant)
+        {
+            case CardVisualVariant.Standard:
+                // Nothing else needed.
+                break;
+
+            case CardVisualVariant.Foil:
+                ApplyFoil();
+                break;
+
+            case CardVisualVariant.AlternateArt:
+                ApplyAlternateArt();
+                break;
+
+            case CardVisualVariant.Misprint:
+                ApplyMisprint();
+                break;
+        }
+    }
+
+    private void ResetVariantVisuals()
+    {
+        // Disable persistent Foil overlay.
+        if (foilOverlay != null)
+        {
+            foilOverlay.SetActive(false);
+        }
+
+        // Restore normal CardFront rotation.
+        if (cardFront != null)
+        {
+            cardFront.localRotation =
+                normalFrontRotation;
+        }
+
+        // Restore original card material.
+        if (cardFrontRenderer != null &&
+            normalFrontMaterial != null)
+        {
+            cardFrontRenderer.sharedMaterial =
+                normalFrontMaterial;
+        }
+    }
+
+    private void ApplyFoil()
+    {
+        if (foilOverlay != null)
+        {
+            foilOverlay.SetActive(true);
+        }
+    }
+
+    private void ApplyAlternateArt()
+    {
+        if (cardFrontRenderer != null &&
+            alternateArtRuntimeMaterial != null)
+        {
+            cardFrontRenderer.sharedMaterial =
+                alternateArtRuntimeMaterial;
+        }
+    }
+
+    private void ApplyMisprint()
+    {
+        if (cardFront != null)
+        {
+            cardFront.localRotation =
+                normalFrontRotation *
+                Quaternion.Euler(
+                    0f,
+                    0f,
+                    180f);
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (alternateArtRuntimeMaterial != null)
+        {
+            Destroy(
+                alternateArtRuntimeMaterial);
+        }
+    }
+}

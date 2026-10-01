@@ -9,7 +9,7 @@ namespace LethalCards.Grading;
 public class GradingPedestalBehaviour : MonoBehaviour
 {
     // public const int CostPerCard = 10;
-    public const int CostPerCard = GradingManager.GradingCostPerCard;
+    public static int CostPerCard => GradingManager.GradingCostPerCard;
 
     public void TrySubmitHeldCard(
         PlayerControllerB player)
