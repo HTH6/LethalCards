@@ -40,7 +40,7 @@ public static class SessionLifecyclePatch
         // Natural facility registration is independent.
         // ==================================================
         
-        DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
+        //DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
 
         CollectionNetworkSync.Initialize();
         GradingNetworkSync.Initialize();

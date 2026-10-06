@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+- Fixed card submission timer preventing card submission on the grading pedestal before the ship finished landing at company building
+- Reorganized README
+
 ## 1.0.2
 
 - Added AI Disclosure

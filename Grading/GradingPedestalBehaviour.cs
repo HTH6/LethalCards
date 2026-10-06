@@ -56,8 +56,18 @@ public class GradingPedestalBehaviour : MonoBehaviour
             return;
 
         StartOfRound round = StartOfRound.Instance;
-        if (round == null || round.currentLevel == null || !round.shipHasLanded ||
-            round.shipIsLeaving || round.inShipPhase ||
+        if (round == null || round.currentLevel == null)
+            return;
+
+        if (round.shipIsLeaving || round.inShipPhase)
+        {
+            Plugin.Log.LogInfo(
+                $"GRADING SUBMISSION REJECTED | ShipIsLeaving={round.shipIsLeaving} | " +
+                $"InShipPhase={round.inShipPhase} | ShipHasLanded={round.shipHasLanded}");
+            return;
+        }
+
+        if (
             !round.currentLevel.PlanetName.Contains("Gordion", System.StringComparison.OrdinalIgnoreCase) ||
             Object.FindObjectOfType<DepositItemsDesk>() == null ||
             Vector3.Distance(player.transform.position, GradingPedestalSpawner.GradingPedestalPosition) > 5f)

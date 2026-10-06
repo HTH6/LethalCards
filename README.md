@@ -4,10 +4,6 @@
 
 ### ▶ Watch the Official Lethal Cards Trailer by clicking the link above
 
-## AI-Usage Notice
-
-AI was utilized to help build the code logic behind the mod. All card artwork itself was done by hand. AI was used to generate the booster box and booster pack art for those item assets themselves, but not the 33 individual cards.
-
 **Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
 
 
@@ -31,7 +27,7 @@ Lethal Cards is designed for multiplayer, and **all players in the lobby should 
 ## How It Works
 
 1. **Find booster packs and booster boxes** inside facilities.
-2. **Rip packs** to reveal three collectible cards.
+2. **Rip booster boxes or booster packs** to reveal four booster pack objects or three collectible cards respectively.
 3. **Collect cards** across multiple rarity tiers and variants.
 4. **Grade valuable pulls** at the Company Building. By default, grading takes **3 in-game days**.
 5. **Build your collection** and use the terminal's `collection` command to see what you've obtained.
@@ -314,6 +310,10 @@ Add a display case to the ship where players can store and show off their favori
 
 Allow graded cards to be removed from their slabs and submitted for grading again with different re-grading odds.
 
+#### New Booster Box, Booster Pack, and Icon Art
+
+Remove AI-generated artwork on booster boxes, booster packs, and mod icon and replace with hand-drawn images.
+
 ### V3
 
 #### Upgrade Shop
@@ -342,6 +342,18 @@ Expanded inspection controls allowing players to rotate and examine:
 Use the cards you've collected to actually **play a Lethal Cards card game** with other players.
 
 More information will come as development continues.
+
+---
+
+## AI-Usage Notice
+
+AI was utilized to help build the code logic behind the mod. All card artwork itself was done by hand. AI was used to generate the booster box and booster pack art for those item assets themselves, but not the 33 individual cards.
+
+---
+
+## Stability
+
+As it is, this mod runs perfectly fine with any other Lethal Company Mod. This mod does not interact with or require any other mods besides the basic dependencies listed above, and thus has no issues rendering content or interacting with mod content. I currently am running this mod in conjunction with 99+ other mods on my own personal Lethal Company mod profile without any stability issues. If you run into any issues, please list them utilizing the README sections below.
 
 ---
 
