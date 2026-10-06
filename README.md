@@ -1,10 +1,8 @@
 # Lethal Cards
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/HTH6/LethalCards/main/images/LethalCardsBanner.png" width="800">
-</p>
+[![Watch the Lethal Cards Trailer](https://img.youtube.com/vi/Ap0-935wEuE/maxresdefault.jpg)](https://www.youtube.com/watch?v=Ap0-935wEuE)
 
-[YouTube Trailer / Showcase](https://youtu.be/Ap0-935wEuE)
+### ▶ Watch the Official Lethal Cards Trailer by clicking the link above
 
 **Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
 

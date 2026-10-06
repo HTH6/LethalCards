@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Added YouTube trailer/showcase link.
+- Added Thunderstore page link to README.
+
 ## v0.1.3 - Playtesting Release
 
 This entry summarizes the current playtest build and development changes since the initial beta.
