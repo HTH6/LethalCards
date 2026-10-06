@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LethalCards")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.3.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.3+2ededff479842eddfc839093a6289a415fa53c5f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.3+492e02def439dab92cae22280a5f5051d884d769")]
 [assembly: System.Reflection.AssemblyProductAttribute("LethalCards")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LethalCards")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.3.0")]
