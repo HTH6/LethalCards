@@ -24,12 +24,15 @@ public class BoosterBoxBehaviour : PhysicsProp
 
     public override void ItemActivate(bool used, bool buttonDown = true)
     {
-        Plugin.Log.LogInfo($"BOOSTER BOX ITEM ACTIVATE | Type={BoxType} | Used={used} | ButtonDown={buttonDown} | HeldBy={playerHeldBy?.actualClientId} | Spawned={IsSpawned} | Server={IsServer} | Owner={OwnerClientId}");
+        if (buttonDown && BoosterInspectionGuard.IsInspectingThis(playerHeldBy, this))
+            return;
+
+        // Plugin.Log.LogInfo($"BOOSTER BOX ITEM ACTIVATE | Type={BoxType} | Used={used} | ButtonDown={buttonDown} | HeldBy={playerHeldBy?.actualClientId} | Spawned={IsSpawned} | Server={IsServer} | Owner={OwnerClientId}");
         DiagnosticActivationCount++;
         base.ItemActivate(used, buttonDown);
         if (!buttonDown || !IsSpawned)
         {
-            Plugin.Log.LogInfo($"BOOSTER BOX ACTIVATE SKIP | ButtonDown={buttonDown} | Spawned={IsSpawned}");
+            // Plugin.Log.LogInfo($"BOOSTER BOX ACTIVATE SKIP | ButtonDown={buttonDown} | Spawned={IsSpawned}");
             return;
         }
         if (IsServer)
@@ -39,7 +42,7 @@ public class BoosterBoxBehaviour : PhysicsProp
         }
         if (Time.realtimeSinceStartup < nextOpenRequestTime)
         {
-            Plugin.Log.LogInfo("BOOSTER BOX ACTIVATE SKIP | Reason=Request throttle");
+            // Plugin.Log.LogInfo("BOOSTER BOX ACTIVATE SKIP | Reason=Request throttle");
             return;
         }
         nextOpenRequestTime = Time.realtimeSinceStartup + 0.5f;
@@ -49,7 +52,7 @@ public class BoosterBoxBehaviour : PhysicsProp
     [ServerRpc(RequireOwnership = false)]
     private void RequestOpenBoxServerRpc(ServerRpcParams rpcParams = default)
     {
-        Plugin.Log.LogInfo($"BOOSTER BOX SERVER RPC | Type={BoxType} | Sender={rpcParams.Receive.SenderClientId}");
+        // Plugin.Log.LogInfo($"BOOSTER BOX SERVER RPC | Type={BoxType} | Sender={rpcParams.Receive.SenderClientId}");
         TryOpenServer(rpcParams.Receive.SenderClientId);
     }
 
@@ -57,7 +60,7 @@ public class BoosterBoxBehaviour : PhysicsProp
     {
         if (!IsServer || openingStarted || StartOfRound.Instance == null)
         {
-            Plugin.Log.LogInfo($"BOOSTER BOX OPEN REJECT | Server={IsServer} | OpeningStarted={openingStarted} | RoundPresent={StartOfRound.Instance != null}");
+            // Plugin.Log.LogInfo($"BOOSTER BOX OPEN REJECT | Server={IsServer} | OpeningStarted={openingStarted} | RoundPresent={StartOfRound.Instance != null}");
             return;
         }
         // Unused player slots can share client ID zero. Never select the last ID match:
@@ -68,17 +71,21 @@ public class BoosterBoxBehaviour : PhysicsProp
             !NetworkItemConsumption.IsValidHolder(holder, this) || consumption == null)
         {
             LogValidationDetail(senderClientId);
-            Plugin.Log.LogInfo($"BOOSTER BOX OPEN REJECT | Sender={senderClientId} | Holder={holder?.actualClientId} | " +
+            /* Plugin.Log.LogInfo($"BOOSTER BOX OPEN REJECT | Sender={senderClientId} | Holder={holder?.actualClientId} | " +
                 $"Controlled={holder?.isPlayerControlled} | Dead={holder?.isPlayerDead} | Spawned={IsSpawned} | " +
                 $"HeldOnServer={heldByPlayerOnServer} | Owner={OwnerClientId} | " +
-                $"HeldObjectMatches={(holder != null && holder.currentlyHeldObjectServer == this)} | ConsumptionPresent={consumption != null}");
+                $"HeldObjectMatches={(holder != null && holder.currentlyHeldObjectServer == this)} | ConsumptionPresent={consumption != null}"); */
             return;
         }
+
+        if (BoosterInspectionGuard.IsInspectingThis(holder, this))
+            return;
 
         // Lock before any RNG/instantiation. Failed openings cannot reroll or duplicate contents.
         openingStarted = true;
         GameObject[] packs = new GameObject[4];
         BoosterType[] types = new BoosterType[4];
+        int[] scrapValues = new int[4];
         try
         {
             Plugin.Log.LogInfo($"BOOSTER BOX OPEN | Type={BoxType}");
@@ -96,17 +103,20 @@ public class BoosterBoxBehaviour : PhysicsProp
                     item.spawnPrefab.GetComponent<BoosterPackBehaviour>() == null)
                     throw new InvalidOperationException($"Registered {types[i]} booster prefab is unavailable.");
 
-                BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, types[i], "BOX PACK PREFAB");
+                // BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, types[i], "BOX PACK PREFAB");
                 packs[i] = Instantiate(item.spawnPrefab, transform.position, Quaternion.identity,
                     StartOfRound.Instance.propsContainer);
-                BoosterPrefabDiagnostics.ValidateAndLog(packs[i], types[i], "BOX PACK INSTANCE PRE-SPAWN");
+                // BoosterPrefabDiagnostics.ValidateAndLog(packs[i], types[i], "BOX PACK INSTANCE PRE-SPAWN");
                 BoosterPackBehaviour pack = packs[i].GetComponent<BoosterPackBehaviour>();
                 if (pack.PackType != types[i])
                     throw new InvalidOperationException("Registered booster PackType does not match box contents.");
+                pack.SpawnedFromBox = true;
+                pack.itemProperties = item;
                 pack.isInFactory = isInFactory;
                 pack.isInShipRoom = isInShipRoom;
                 pack.isInElevator = isInElevator;
-                pack.SetScrapValue(UnityEngine.Random.Range(item.minValue, item.maxValue));
+                scrapValues[i] = UnityEngine.Random.Range(item.minValue, item.maxValue);
+                pack.SetScrapValue(scrapValues[i]);
 
                 // Inspect the actual instantiated collider dimensions; no asset/collider edits.
                 foreach (Collider collider in packs[i].GetComponentsInChildren<Collider>())
@@ -121,18 +131,41 @@ public class BoosterBoxBehaviour : PhysicsProp
             // Stage all four before spawning; no physics frame elapses at the staging position.
             for (int i = 0; i < packs.Length; i++)
             {
-                packs[i].transform.position = transform.position + new Vector3(
+                Vector3 originalPosition = transform.position + new Vector3(
                     i % 2 == 0 ? -halfSpacingX : halfSpacingX, 0.15f,
                     i < 2 ? -halfSpacingZ : halfSpacingZ);
+                packs[i].transform.position = originalPosition;
+                BoosterPackBehaviour pack = packs[i].GetComponent<BoosterPackBehaviour>();
+                float verticalAdjustment =
+                    CustomSpawnPlacement.PrepareSpawnHeight(
+                        packs[i],
+                        originalPosition,
+                        CustomSpawnPlacement.BoosterPackVerticalClearance,
+                        out float boundsMinimumY);
+                Vector3 correctedPosition = packs[i].transform.position;
+
+                /* Plugin.Log.LogInfo(
+                    $"CUSTOM PACK SPAWN PLACEMENT | Type={types[i]} | " +
+                    $"OriginalPosition={originalPosition} | CorrectedPosition={correctedPosition} | " +
+                    $"VerticalAdjustment={verticalAdjustment} | BoundsMinimumY={boundsMinimumY}"); */
+
                 NetworkObject networkObject = packs[i].GetComponent<NetworkObject>();
+                CustomSpawnPlacement.MarkForFloorTargetCorrection(pack);
                 networkObject.Spawn();
                 if (!networkObject.IsSpawned)
                     throw new InvalidOperationException($"Pack {i + 1} did not network-spawn.");
-                BoosterPackBehaviour spawnedPack = packs[i].GetComponent<BoosterPackBehaviour>();
-                Plugin.Log.LogInfo($"BOX PACK INSTANCE SPAWNED | Type={types[i]} | NetworkObjectId={networkObject.NetworkObjectId} | " +
-                    $"Spawned={networkObject.IsSpawned} | BoosterBehaviour={spawnedPack != null} | PackType={spawnedPack?.PackType}");
-                Plugin.Log.LogInfo($"BOX PACK {i + 1} | Type={types[i]}");
+                // Plugin.Log.LogInfo($"BOX PACK INSTANCE SPAWNED | Type={types[i]} | NetworkObjectId={networkObject.NetworkObjectId} | " +
+                //     $"Spawned={networkObject.IsSpawned} | BoosterBehaviour={spawnedPack != null} | PackType={spawnedPack?.PackType}");
+                // Plugin.Log.LogInfo($"BOX PACK {i + 1} | Type={types[i]}");
             }
+
+            if (RoundManager.Instance == null)
+                throw new InvalidOperationException("RoundManager is unavailable for box pack scrap-value synchronization.");
+
+            NetworkObjectReference[] packReferences = new NetworkObjectReference[packs.Length];
+            for (int i = 0; i < packs.Length; i++)
+                packReferences[i] = new NetworkObjectReference(packs[i].GetComponent<NetworkObject>());
+            RoundManager.Instance.SyncScrapValuesClientRpc(packReferences, scrapValues);
         }
         catch (Exception exception)
         {
@@ -168,18 +201,20 @@ public class BoosterBoxBehaviour : PhysicsProp
     private void LogValidationDetail(ulong senderClientId)
     {
         PlayerControllerB? holder = playerHeldBy;
-        Plugin.Log.LogInfo($"BOOSTER BOX VALIDATION DETAIL | Sender={senderClientId} | Holder={holder?.actualClientId} | " +
+        /* Plugin.Log.LogInfo($"BOOSTER BOX VALIDATION DETAIL | Sender={senderClientId} | Holder={holder?.actualClientId} | " +
             $"HolderInstance={holder?.GetInstanceID()} | Owner={OwnerClientId} | Controlled={holder?.isPlayerControlled} | Dead={holder?.isPlayerDead} | " +
             $"This={DescribeHeldObject(this)} | CurrentHeldServer={DescribeHeldObject(holder?.currentlyHeldObjectServer)} | " +
             $"CurrentHeldLocal={DescribeHeldObject(holder?.currentlyHeldObject)} | " +
-            $"ServerMatch={ReferenceEquals(holder?.currentlyHeldObjectServer, this)} | LocalMatch={ReferenceEquals(holder?.currentlyHeldObject, this)}");
+            $"ServerMatch={ReferenceEquals(holder?.currentlyHeldObjectServer, this)} | LocalMatch={ReferenceEquals(holder?.currentlyHeldObject, this)}"); */
         if (StartOfRound.Instance == null)
             return;
         foreach (PlayerControllerB player in StartOfRound.Instance.allPlayerScripts)
             if (player != null && player.actualClientId == senderClientId)
-                Plugin.Log.LogInfo($"BOOSTER BOX PLAYER CANDIDATE | Sender={senderClientId} | Instance={player.GetInstanceID()} | " +
-                    $"ActualHolder={ReferenceEquals(player, holder)} | Controlled={player.isPlayerControlled} | " +
-                    $"CurrentHeldServer={DescribeHeldObject(player.currentlyHeldObjectServer)}");
+            {
+                // Plugin.Log.LogInfo($"BOOSTER BOX PLAYER CANDIDATE | Sender={senderClientId} | Instance={player.GetInstanceID()} | " +
+                //     $"ActualHolder={ReferenceEquals(player, holder)} | Controlled={player.isPlayerControlled} | " +
+                //     $"CurrentHeldServer={DescribeHeldObject(player.currentlyHeldObjectServer)}");
+            }
     }
 
     private static string DescribeHeldObject(GrabbableObject? item) => item == null ? "null" :

@@ -1,4 +1,5 @@
 using GameNetcodeStuff;
+using LethalCards.Cards;
 using UnityEngine;
 
 namespace LethalCards.Grading;
@@ -6,32 +7,57 @@ namespace LethalCards.Grading;
 public static class GradingPedestalSpawner
 {
     public static readonly Vector3 GradingPedestalPosition =
-        new Vector3(
+        new(
             -27.91f,
             -2.63f,
             -22.19f
         );
 
     public static readonly Vector3 GradedCardPickupPosition =
-        new Vector3(
+        new(
             -27.85f,
             -2.63f,
             -14.16f
         );
 
-    public static readonly Vector3 GradedCardRestPosition =
-        new Vector3(
-            -27.85f,
-            0.0f,
-            -14.16f
-        );
+    private const float ReturnColumnSpacing = 0.55f;
+    private const float ReturnRowSpacing = 0.22f;
 
+    private static GameObject? submissionPedestalPrefab;
+    private static GameObject? returnPedestalPrefab;
     private static GameObject? pedestalRoot;
     private static GameObject? pickupPedestalRoot;
+    private static Transform? returnRestAnchor;
+    private static GradingPedestalAnimationController? animationController;
+
+    public static void LoadAssets(AssetBundle bundle)
+    {
+        submissionPedestalPrefab = LoadPrefab(bundle, "GradingSubmissionPedestal_Animated", false);
+        if (submissionPedestalPrefab != null)
+        {
+            Plugin.Log.LogInfo("ANIMATED GRADING PEDESTAL LOADED");
+        }
+        else
+        {
+            Plugin.Log.LogWarning("ANIMATED GRADING PEDESTAL MISSING | Falling back to GradingSubmissionPedestal");
+            submissionPedestalPrefab = LoadPrefab(bundle, "GradingSubmissionPedestal");
+        }
+        returnPedestalPrefab = LoadPrefab(bundle, "GradingReturnPedestal");
+    }
+
+    internal static void PlaySubmissionAnimation(string cardId, CardVariant variant) =>
+        animationController?.PlaySubmission(cardId, variant);
+
+    internal static void PlayInsufficientCreditsAnimation() =>
+        animationController?.PlayInsufficientCredits();
+
+    internal static bool IsReturnPedestalReady =>
+        pickupPedestalRoot != null &&
+        pickupPedestalRoot.activeInHierarchy &&
+        returnRestAnchor != null;
 
     public static void TrySpawn()
     {
-        // If our pedestal still exists, don't create another.
         if (pedestalRoot != null)
             return;
 
@@ -44,7 +70,6 @@ public static class GradingPedestalSpawner
         if (level == null)
             return;
 
-        // Only operate on the Company planet.
         if (
             !level.PlanetName.Contains(
                 "Gordion",
@@ -53,11 +78,6 @@ public static class GradingPedestalSpawner
             return;
         }
 
-        // Routing to Gordion changes currentLevel before
-        // CompanyBuilding is actually loaded.
-        //
-        // The deposit desk existing tells us the real
-        // Company scene has finished loading.
         DepositItemsDesk depositDesk =
             Object.FindObjectOfType<DepositItemsDesk>();
 
@@ -68,183 +88,105 @@ public static class GradingPedestalSpawner
         CreatePickupPedestal();
     }
 
-    // ============================================================
-    // SUBMISSION PEDESTAL
-    // ============================================================
+    public static bool TryGetReturnPlacement(
+        int spawnIndex,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        position = Vector3.zero;
+        rotation = Quaternion.identity;
+
+        if (returnRestAnchor == null)
+        {
+            Plugin.Log.LogError("GRADING RETURN PLACEMENT FAILED | GradedCardRestAnchor is missing; refusing to spawn returned card at fallback position.");
+            return false;
+        }
+
+        int column = spawnIndex % 3;
+        int row = spawnIndex / 3;
+        Vector3 localOffset = new(
+            column * ReturnColumnSpacing,
+            row * -ReturnRowSpacing,
+            0f
+        );
+
+        position = returnRestAnchor.TransformPoint(localOffset);
+        rotation = returnRestAnchor.rotation;
+
+        /* Plugin.Log.LogInfo(
+            $"GRADING RETURN PLACEMENT | " +
+            $"SpawnIndex={spawnIndex} | " +
+            $"Column={column} | " +
+            $"Row={row} | " +
+            $"LocalOffset={localOffset} | " +
+            $"WorldPosition={position} | " +
+            $"WorldRotation={rotation.eulerAngles} | " +
+            $"AnchorRight={returnRestAnchor.right} | " +
+            $"AnchorUp={returnRestAnchor.up} | " +
+            $"AnchorForward={returnRestAnchor.forward}"
+        ); */
+
+        return true;
+    }
 
     private static void CreatePedestal()
     {
+        if (submissionPedestalPrefab == null)
+        {
+            Plugin.Log.LogError("GRADING PEDESTAL SPAWN FAILED | No submission pedestal prefab was loaded.");
+            return;
+        }
+
         pedestalRoot =
-            new GameObject(
-                "LethalCardsGradingPedestal"
+            Object.Instantiate(
+                submissionPedestalPrefab,
+                GradingPedestalPosition,
+                Quaternion.Euler(0f, 90f, 0f)
             );
 
-        pedestalRoot.transform.position =
-            GradingPedestalPosition;
+        pedestalRoot.name =
+            "LethalCardsGradingPedestal";
 
-        pedestalRoot.transform.rotation =
-            Quaternion.Euler(
-                0f,
-                90f,
-                0f
-            );
+        animationController = pedestalRoot.AddComponent<GradingPedestalAnimationController>();
+        animationController.Initialize();
 
-        CreatePedestalMesh();
-        CreateInteraction();
+        Transform? interactionAnchor =
+            FindChild(pedestalRoot.transform, "InteractionAnchor");
 
-        Plugin.Log.LogInfo(
-            $"GRADING PEDESTAL SPAWNED | " +
+        if (interactionAnchor == null)
+        {
+            Plugin.Log.LogError("GRADING PEDESTAL ERROR | GradingSubmissionPedestal is missing required child InteractionAnchor.");
+            return;
+        }
+
+        CreateInteraction(interactionAnchor);
+
+        /* Plugin.Log.LogInfo(
+            $"GRADING PEDESTAL PREFAB SPAWNED | " +
             $"Position={pedestalRoot.transform.position} | " +
-            $"PickupPosition={GradedCardPickupPosition}"
-        );
+            $"Rotation={pedestalRoot.transform.rotation.eulerAngles} | " +
+            $"InteractionAnchor={interactionAnchor.position}"
+        ); */
     }
 
-    private static void CreatePedestalMesh()
-    {
-        if (pedestalRoot == null)
-            return;
-
-        Shader shader =
-            Shader.Find(
-                "HDRP/Lit"
-            );
-
-        if (shader == null)
-        {
-            Plugin.Log.LogError(
-                "GRADING PEDESTAL ERROR | " +
-                "HDRP/Lit shader not found."
-            );
-
-            return;
-        }
-
-        Material pedestalMaterial =
-            new Material(shader);
-
-        pedestalMaterial.name =
-            "LethalCardsGradingPedestalMaterial";
-
-        pedestalMaterial.color =
-            new Color(
-                0.15f,
-                0.65f,
-                1.0f,
-                1.0f
-            );
-
-        // =========================
-        // BASE
-        // =========================
-
-        GameObject baseObject =
-            GameObject.CreatePrimitive(
-                PrimitiveType.Cube
-            );
-
-        baseObject.name =
-            "GradingPedestalBase";
-
-        baseObject.transform.SetParent(
-            pedestalRoot.transform
-        );
-
-        baseObject.transform.localPosition =
-            new Vector3(
-                0f,
-                0.5f,
-                0f
-            );
-
-        baseObject.transform.localScale =
-            new Vector3(
-                1.2f,
-                1.0f,
-                1.2f
-            );
-
-        MeshRenderer baseRenderer =
-            baseObject.GetComponent<MeshRenderer>();
-
-        if (baseRenderer != null)
-        {
-            baseRenderer.material =
-                pedestalMaterial;
-
-            Plugin.Log.LogInfo(
-                $"GRADING BASE RENDERER | " +
-                $"Enabled={baseRenderer.enabled} | " +
-                $"Material={baseRenderer.material.name}"
-            );
-        }
-
-        // =========================
-        // TOP
-        // =========================
-
-        GameObject topObject =
-            GameObject.CreatePrimitive(
-                PrimitiveType.Cube
-            );
-
-        topObject.name =
-            "GradingPedestalTop";
-
-        topObject.transform.SetParent(
-            pedestalRoot.transform
-        );
-
-        topObject.transform.localPosition =
-            new Vector3(
-                0f,
-                1.1f,
-                0f
-            );
-
-        topObject.transform.localScale =
-            new Vector3(
-                1.6f,
-                0.2f,
-                1.6f
-            );
-
-        MeshRenderer topRenderer =
-            topObject.GetComponent<MeshRenderer>();
-
-        if (topRenderer != null)
-        {
-            topRenderer.material =
-                pedestalMaterial;
-        }
-
-        Plugin.Log.LogInfo(
-            $"GRADING PEDESTAL MESH CREATED | " +
-            $"BaseActive={baseObject.activeInHierarchy} | " +
-            $"BasePosition={baseObject.transform.position} | " +
-            $"TopPosition={topObject.transform.position}"
-        );
-    }
-
-    private static void CreateInteraction()
+    private static void CreateInteraction(
+        Transform interactionAnchor)
     {
         if (pedestalRoot == null)
             return;
 
         GameObject interactionObject =
-            new GameObject(
+            new(
                 "GradingPedestalInteract"
             );
 
         interactionObject.transform.SetParent(
-            pedestalRoot.transform
+            interactionAnchor,
+            false
         );
 
         interactionObject.transform.localPosition =
-            new Vector3(
-                0f,
-                1.3f,
-                0f
-            );
+            Vector3.zero;
 
         interactionObject.layer =
             LayerMask.NameToLayer(
@@ -276,6 +218,8 @@ public static class GradingPedestalSpawner
 
         trigger.cooldownTime =
             0.5f;
+
+        ConfigureInteractionIcons(trigger);
 
         trigger.hoverTip =
             $"Submit card for grading (${GradingManager.GradingCostPerCard}) : [E]";
@@ -309,217 +253,156 @@ public static class GradingPedestalSpawner
         );
     }
 
-    // ============================================================
-    // GRADED CARD PICKUP PEDESTAL
-    // ============================================================
+    private static void ConfigureInteractionIcons(InteractTrigger trigger)
+    {
+        InteractTrigger? iconSource = Object.FindObjectOfType<DepositItemsDesk>()?.triggerScript;
+        if (iconSource == null || iconSource.hoverIcon == null)
+        {
+            foreach (InteractTrigger candidate in Object.FindObjectsOfType<InteractTrigger>())
+            {
+                if (candidate == null || candidate == trigger || candidate.hoverIcon == null ||
+                    !candidate.interactable || candidate.holdInteraction)
+                    continue;
+
+                iconSource = candidate;
+                break;
+            }
+        }
+
+        if (iconSource != null && iconSource.hoverIcon != null)
+        {
+            trigger.hoverIcon = iconSource.hoverIcon;
+            trigger.disabledHoverIcon = iconSource.disabledHoverIcon;
+            return;
+        }
+
+        Sprite? vanillaGrabIcon = GameNetworkManager.Instance?.localPlayerController?.grabItemIcon;
+        if (vanillaGrabIcon != null)
+        {
+            trigger.hoverIcon = vanillaGrabIcon;
+            trigger.disabledHoverIcon = vanillaGrabIcon;
+            return;
+        }
+
+        trigger.hoverIcon = null;
+        trigger.disabledHoverIcon = null;
+        Plugin.Log.LogWarning("GRADING PEDESTAL INTERACTION ICON UNAVAILABLE | No vanilla interaction sprite was available; icon omitted.");
+    }
 
     private static void CreatePickupPedestal()
     {
         if (pickupPedestalRoot != null)
             return;
 
-        pickupPedestalRoot =
-            new GameObject(
-                "LethalCardsGradedPickupPedestal"
-            );
-
-        pickupPedestalRoot.transform.position =
-            GradedCardPickupPosition;
-
-        pickupPedestalRoot.transform.rotation =
-            Quaternion.Euler(
-                0f,
-                90f,
-                0f
-            );
-
-        Shader shader =
-            Shader.Find(
-                "HDRP/Lit"
-            );
-
-        if (shader == null)
+        if (returnPedestalPrefab == null)
         {
-            Plugin.Log.LogError(
-                "GRADED PICKUP PEDESTAL ERROR | " +
-                "HDRP/Lit shader not found."
-            );
-
+            Plugin.Log.LogError("GRADED PICKUP PEDESTAL SPAWN FAILED | GradingReturnPedestal prefab was not loaded.");
             return;
         }
 
-        Material material =
-            new Material(shader);
-
-        material.name =
-            "LethalCardsGradedPickupMaterial";
-
-        // Temporary prototype color.
-        // Slightly green so it's visually distinct
-        // from the blue submission pedestal.
-        material.color =
-            new Color(
-                0.25f,
-                0.85f,
-                0.35f,
-                1f
+        pickupPedestalRoot =
+            Object.Instantiate(
+                returnPedestalPrefab,
+                GradedCardPickupPosition,
+                Quaternion.Euler(0f, 90f, 0f)
             );
 
-        // =========================
-        // BASE
-        // =========================
+        pickupPedestalRoot.name =
+            "LethalCardsGradedPickupPedestal";
 
-        GameObject baseObject =
-            GameObject.CreatePrimitive(
-                PrimitiveType.Cube
-            );
+        Transform? catchSurface =
+            FindChild(pickupPedestalRoot.transform, "CardCatchSurface");
 
-        baseObject.name =
-            "GradedPickupPedestalBase";
+        returnRestAnchor =
+            FindChild(pickupPedestalRoot.transform, "GradedCardRestAnchor");
 
-        baseObject.transform.SetParent(
-            pickupPedestalRoot.transform
-        );
+        if (catchSurface == null)
+            Plugin.Log.LogError("GRADED PICKUP PEDESTAL ERROR | GradingReturnPedestal is missing required child CardCatchSurface.");
 
-        baseObject.transform.localPosition =
-            new Vector3(
-                0f,
-                0.5f,
-                0f
-            );
-
-        baseObject.transform.localScale =
-            new Vector3(
-                1.6f,
-                1.0f,
-                1.6f
-            );
-
-        MeshRenderer baseRenderer =
-            baseObject.GetComponent<MeshRenderer>();
-
-        if (baseRenderer != null)
+        if (returnRestAnchor == null)
         {
-            baseRenderer.material =
-                material;
+            Plugin.Log.LogError("GRADED PICKUP PEDESTAL ERROR | GradingReturnPedestal is missing required child GradedCardRestAnchor.");
+        }
+        else
+        {
+            /* Plugin.Log.LogInfo(
+                $"GRADED PICKUP REST ANCHOR | " +
+                $"WorldPosition={returnRestAnchor.position} | " +
+                $"WorldRotation={returnRestAnchor.rotation.eulerAngles}"
+            ); */
         }
 
-        // =========================
-        // VISIBLE TOP
-        // =========================
-
-        GameObject topObject =
-            GameObject.CreatePrimitive(
-                PrimitiveType.Cube
-            );
-
-        topObject.name =
-            "GradedPickupPedestalTop";
-
-        topObject.transform.SetParent(
-            pickupPedestalRoot.transform
-        );
-
-        topObject.transform.localPosition =
-            new Vector3(
-                0f,
-                1.1f,
-                0f
-            );
-
-        topObject.transform.localScale =
-            new Vector3(
-                2.0f,
-                0.2f,
-                2.0f
-            );
-
-        MeshRenderer topRenderer =
-            topObject.GetComponent<MeshRenderer>();
-
-        if (topRenderer != null)
-        {
-            topRenderer.material =
-                material;
-        }
-
-        // ========================================================
-        // INVISIBLE CARD CATCH SURFACE
-        //
-        // The cards are extremely thin and were falling/clipping
-        // into the decorative pedestal top.
-        //
-        // This creates a much thicker invisible collider slightly
-        // above the visible top. The MeshRenderer is disabled, but
-        // the BoxCollider created by CreatePrimitive remains active.
-        // ========================================================
-
-        GameObject catchSurface =
-            GameObject.CreatePrimitive(
-                PrimitiveType.Cube
-            );
-
-        catchSurface.name =
-            "GradedCardCatchSurface";
-
-        catchSurface.transform.SetParent(
-            pickupPedestalRoot.transform
-        );
-
-        catchSurface.transform.localPosition =
-            new Vector3(
-                0f,
-                1.25f,
-                0f
-            );
-
-        catchSurface.transform.localScale =
-            new Vector3(
-                2.2f,
-                0.10f,
-                2.2f
-            );
-
-        MeshRenderer catchRenderer =
-            catchSurface.GetComponent<MeshRenderer>();
-
-        if (catchRenderer != null)
-        {
-            catchRenderer.enabled =
-                false;
-        }
-
-        BoxCollider catchCollider =
-            catchSurface.GetComponent<BoxCollider>();
-
-        if (catchCollider != null)
-        {
-            catchCollider.enabled =
-                true;
-
-            catchCollider.isTrigger =
-                false;
-        }
-
-        Plugin.Log.LogInfo(
-            $"GRADED PICKUP CATCH SURFACE CREATED | " +
-            $"Position={catchSurface.transform.position} | " +
-            $"Scale={catchSurface.transform.lossyScale} | " +
-            $"ColliderEnabled=" +
-            $"{(catchCollider != null && catchCollider.enabled)}"
-        );
-
-        Plugin.Log.LogInfo(
-            $"GRADED PICKUP PEDESTAL SPAWNED | " +
+        /* Plugin.Log.LogInfo(
+            $"GRADED PICKUP PEDESTAL PREFAB SPAWNED | " +
             $"Position={pickupPedestalRoot.transform.position} | " +
-            $"TopPosition={topObject.transform.position} | " +
-            $"CatchSurfacePosition={catchSurface.transform.position}"
-        );
+            $"Rotation={pickupPedestalRoot.transform.rotation.eulerAngles} | " +
+            $"CatchSurfaceFound={catchSurface != null} | " +
+            $"RestAnchorFound={returnRestAnchor != null}"
+        ); */
     }
 
-    // ============================================================
-    // RESET
-    // ============================================================
+    private static GameObject? LoadPrefab(
+        AssetBundle bundle,
+        string expectedName,
+        bool logMissing = true)
+    {
+        string[] assetNames =
+            bundle.GetAllAssetNames();
+
+        string? path = null;
+
+        foreach (string assetName in assetNames)
+        {
+            string fileName =
+                System.IO.Path.GetFileNameWithoutExtension(assetName);
+
+            if (fileName.Equals(expectedName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                path = assetName;
+                break;
+            }
+        }
+
+        GameObject? prefab =
+            path == null ? null : bundle.LoadAsset<GameObject>(path);
+
+        if (prefab == null)
+        {
+            foreach (GameObject candidate in bundle.LoadAllAssets<GameObject>())
+            {
+                if (!candidate.name.Equals(expectedName, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                prefab = candidate;
+                break;
+            }
+        }
+
+        if (prefab == null)
+        {
+            if (logMissing)
+                Plugin.Log.LogError($"GRADING PEDESTAL ASSET MISSING | Name={expectedName}");
+        }
+        else
+        {
+            Plugin.Log.LogInfo($"GRADING PEDESTAL ASSET READY | Name={expectedName} | Prefab={prefab.name}");
+        }
+
+        return prefab;
+    }
+
+    private static Transform? FindChild(
+        Transform root,
+        string childName)
+    {
+        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (child.name.Equals(childName, System.StringComparison.OrdinalIgnoreCase))
+                return child;
+        }
+
+        return null;
+    }
 
     public static void Reset()
     {
@@ -531,6 +414,7 @@ public static class GradingPedestalSpawner
 
             pedestalRoot =
                 null;
+            animationController = null;
         }
 
         if (pickupPedestalRoot != null)
@@ -542,5 +426,8 @@ public static class GradingPedestalSpawner
             pickupPedestalRoot =
                 null;
         }
+
+        returnRestAnchor =
+            null;
     }
 }

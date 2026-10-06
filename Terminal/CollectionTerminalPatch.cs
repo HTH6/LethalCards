@@ -33,7 +33,7 @@ public static class CollectionTerminalPatch
         if (state.Browsing == browsing)
             return;
         state.Browsing = browsing;
-        Plugin.Log.LogDebug(browsing ? "COLLECTION CONTEXT ENTER" : "COLLECTION CONTEXT EXIT");
+        // Plugin.Log.LogDebug(browsing ? "COLLECTION CONTEXT ENTER" : "COLLECTION CONTEXT EXIT");
     }
 
     [HarmonyPatch("QuitTerminal"), HarmonyPrefix]
@@ -71,19 +71,35 @@ public static class CollectionTerminalPatch
             input = CollectionCommand + " " + (input == "next" ? "next" : "previous");
         if (input == "grading" || input == "grades")
         {
+            NetworkManager? manager = NetworkManager.Singleton;
+            Plugin.Log.LogInfo(
+                $"GRADING COMMAND | Command={input} | IsHost={manager?.IsHost ?? false} | " +
+                $"IsServer={manager?.IsServer ?? false} | IsClient={manager?.IsClient ?? false} | " +
+                $"LocalClientId={(manager != null ? manager.LocalClientId.ToString() : "<none>")} | " +
+                $"RuntimeJobCount={GradingManager.Jobs.Count}");
             SetCollectionContext(__instance, false);
             TerminalNode gradingNode = UnityEngine.ScriptableObject.CreateInstance<TerminalNode>();
             gradingNode.clearPreviousText = true;
-            if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsServer)
+            if (manager != null && !manager.IsServer)
             {
                 gradingNode.displayText = "\nLETHAL CARDS GRADING STATUS\n\nRetrieving grading status...\n\n";
-                if (!GradingNetworkSync.RequestStatus(display =>
+                if (!GradingNetworkSync.RequestStatus((jobCount, display) =>
                 {
-                    if (__instance == null || !__instance.terminalInUse)
+                    if (__instance == null)
+                    {
+                        Plugin.Log.LogWarning("GRADING RESPONSE BLOCKED | Reason=TerminalDestroyedBeforeDisplay");
                         return;
+                    }
+                    if (!__instance.terminalInUse)
+                    {
+                        Plugin.Log.LogWarning("GRADING RESPONSE BLOCKED | Reason=TerminalNoLongerInUse");
+                        return;
+                    }
                     TerminalNode response = UnityEngine.ScriptableObject.CreateInstance<TerminalNode>();
                     response.clearPreviousText = true;
                     response.displayText = display;
+                    Plugin.Log.LogInfo(
+                        $"GRADING CLIENT DISPLAY | JobCount={jobCount} | OutputLength={display?.Length ?? 0}");
                     __instance.LoadNewNode(response);
                 }))
                     gradingNode.displayText = "\nLETHAL CARDS GRADING STATUS\n\nUnable to contact the server. Try grades again.\n\n";
@@ -262,7 +278,7 @@ public static class CollectionTerminalPatch
         pageIndex = Math.Max(0, Math.Min(pageIndex, pageCount - 1));
         int startIndex = pageIndex * CollectionPageSize;
         int endIndex = Math.Min(startIndex + CollectionPageSize, entries.Length);
-        Plugin.Log.LogDebug($"COLLECTION PAGE | Page={pageIndex + 1}/{pageCount} | Start={(entries.Length == 0 ? 0 : startIndex + 1)} | End={endIndex} | Total={entries.Length} | Range=1-based inclusive");
+        // Plugin.Log.LogDebug($"COLLECTION PAGE | Page={pageIndex + 1}/{pageCount} | Start={(entries.Length == 0 ? 0 : startIndex + 1)} | End={endIndex} | Total={entries.Length} | Range=1-based inclusive");
 
         // Totals describe the full collection, independently of the visible page.
         foreach (CardDefinition card in entries)
@@ -316,7 +332,7 @@ public static class CollectionTerminalPatch
         // Called on the host only, for both local commands and targeted remote responses.
         StringBuilder builder = new("\nLETHAL CARDS GRADING STATUS\n\n");
         int currentDay = GradingDayManager.CurrentDay;
-        Plugin.Log.LogInfo($"GRADING TERMINAL COMMAND | Command={command} | Jobs={GradingManager.Jobs.Count}");
+        // Plugin.Log.LogInfo($"GRADING TERMINAL COMMAND | Command={command} | Jobs={GradingManager.Jobs.Count}");
         if (GradingManager.Jobs.Count == 0)
             builder.AppendLine("No cards are currently in grading.");
         foreach (GradingJob job in GradingManager.Jobs)

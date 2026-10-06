@@ -19,12 +19,12 @@ internal static class BoosterBoxInputDiagnostics
         BoosterBoxBehaviour box = held.GetComponent<BoosterBoxBehaviour>();
         if (box == null)
             return;
-        Plugin.Log.LogInfo($"BOOSTER BOX INPUT | Type={box.BoxType} | HeldComponent={held.GetType().FullName} | " +
+        /* Plugin.Log.LogInfo($"BOOSTER BOX INPUT | Type={box.BoxType} | HeldComponent={held.GetType().FullName} | " +
             $"ActivationComponent={held.GetComponent<GrabbableObject>()?.GetType().FullName} | " +
             $"PlayerOwner={__instance.IsOwner} | Holding={__instance.isHoldingObject} | " +
             $"Dead={__instance.isPlayerDead} | SpecialMenu={__instance.inSpecialMenu} | " +
             $"Terminal={__instance.inTerminalMenu} | Typing={__instance.isTypingChat} | " +
-            $"GrabAnimation={__instance.isGrabbingObjectAnimation} | SpecialInteraction={__instance.inSpecialInteractAnimation}");
+            $"GrabAnimation={__instance.isGrabbingObjectAnimation} | SpecialInteraction={__instance.inSpecialInteractAnimation}"); */
     }
 }
 
@@ -39,12 +39,12 @@ internal static class BoosterBoxUseDiagnostics
         if (box == null)
             return;
         __state = box.DiagnosticActivationCount;
-        Plugin.Log.LogInfo($"BOOSTER BOX USE ENTER | ComponentType={__instance.GetType().FullName} | " +
+        /* Plugin.Log.LogInfo($"BOOSTER BOX USE ENTER | ComponentType={__instance.GetType().FullName} | " +
             $"ButtonDown={__0} | IsOwner={__instance.IsOwner} | Owner={__instance.OwnerClientId} | " +
             $"HeldBy={__instance.playerHeldBy?.actualClientId} | Parent={__instance.parentObject?.name} | " +
             $"RemainingCooldown={___currentUseCooldown} | UseCooldown={__instance.useCooldown} | " +
             $"ItemProperties={__instance.itemProperties?.name} | RequiresBattery={__instance.itemProperties?.requiresBattery} | " +
-            $"BatteryPresent={__instance.insertedBattery != null} | BatteryEmpty={__instance.insertedBattery?.empty}");
+            $"BatteryPresent={__instance.insertedBattery != null} | BatteryEmpty={__instance.insertedBattery?.empty}"); */
     }
 
     [HarmonyPostfix]
@@ -52,6 +52,8 @@ internal static class BoosterBoxUseDiagnostics
     {
         BoosterBoxBehaviour box = __instance.GetComponent<BoosterBoxBehaviour>();
         if (box != null && __state >= 0 && box.DiagnosticActivationCount == __state)
-            Plugin.Log.LogInfo("BOOSTER BOX USE EXIT WITHOUT ACTIVATE | Check component type, ownership, cooldown, and battery state.");
+        {
+            // Plugin.Log.LogInfo("BOOSTER BOX USE EXIT WITHOUT ACTIVATE | Check component type, ownership, cooldown, and battery state.");
+        }
     }
 }

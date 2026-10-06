@@ -43,13 +43,13 @@ internal static class BoosterInputDiagnosticsPatch
             equipped = __instance.ItemSlots[__instance.currentItemSlot];
         if (equipped is not BoosterPackBehaviour pack)
             return;
-        BoosterDiagnostics.Log("INPUT", pack, __instance,
+        /* BoosterDiagnostics.Log("INPUT", pack, __instance,
             $"PlayerIsOwner={__instance.IsOwner} | HostPlayer={__instance.isHostPlayerObject} | " +
             $"HoldingObject={__instance.isHoldingObject} | Slot={__instance.currentItemSlot} | " +
             $"SinceSlotSwitch={___timeSinceSwitchingSlots:F3} | QuickMenu={___quickMenuManager?.isMenuOpen} | " +
             $"SpecialMenu={__instance.inSpecialMenu} | Terminal={__instance.inTerminalMenu} | " +
             $"Typing={__instance.isTypingChat} | GrabAnimation={__instance.isGrabbingObjectAnimation} | " +
-            $"SpecialInteraction={__instance.inSpecialInteractAnimation}");
+            $"SpecialInteraction={__instance.inSpecialInteractAnimation}"); */
     }
 }
 
@@ -63,12 +63,12 @@ internal static class BoosterUseDiagnosticsPatch
         if (__instance is not BoosterPackBehaviour pack)
             return;
         __state = pack.DiagnosticActivationCount;
-        BoosterDiagnostics.Log("USE_ENTER", pack, detail:
+        /* BoosterDiagnostics.Log("USE_ENTER", pack, detail:
             $"ButtonDown={__0} | UseCooldown={pack.useCooldown} | RemainingCooldown={___currentUseCooldown} | " +
             $"RequiresBattery={pack.itemProperties.requiresBattery} | " +
             $"BatteryPresent={pack.insertedBattery != null} | BatteryEmpty={pack.insertedBattery?.empty} | " +
             $"HoldButtonUse={pack.itemProperties.holdButtonUse} | " +
-            $"SyncUse={pack.itemProperties.syncUseFunction} | BeingUsed={pack.isBeingUsed}");
+            $"SyncUse={pack.itemProperties.syncUseFunction} | BeingUsed={pack.isBeingUsed}"); */
     }
 
     [HarmonyPostfix]
@@ -76,7 +76,9 @@ internal static class BoosterUseDiagnosticsPatch
     {
         if (__instance is BoosterPackBehaviour pack && __state >= 0 &&
             pack.DiagnosticActivationCount == __state)
-            BoosterDiagnostics.Log("USE_EXIT_WITHOUT_ACTIVATE", pack,
-                detail: "Vanilla use returned before ItemActivate; inspect ownership/cooldown/battery state.");
+        {
+            /* BoosterDiagnostics.Log("USE_EXIT_WITHOUT_ACTIVATE", pack,
+                detail: "Vanilla use returned before ItemActivate; inspect ownership/cooldown/battery state."); */
+        }
     }
 }

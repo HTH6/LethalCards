@@ -26,7 +26,7 @@ public static class GradingReturnSpawner
         if (StartOfRound.Instance == null)
             return;
 
-        if (!StartOfRound.Instance.shipHasLanded || StartOfRound.Instance.shipIsLeaving || StartOfRound.Instance.inShipPhase)
+        if (StartOfRound.Instance.shipIsLeaving || !GradingPedestalSpawner.IsReturnPedestalReady)
             return;
 
         SelectableLevel level =
@@ -65,11 +65,11 @@ public static class GradingReturnSpawner
         if (readyJobs.Count == 0)
             return;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"GRADING RETURNS READY | " +
             $"NewCount={readyJobs.Count} | " +
             $"CurrentDay={currentDay}"
-        );
+        ); */
 
         int spawnIndex =
             spawnedJobIds.Count;
@@ -126,23 +126,25 @@ public static class GradingReturnSpawner
             return false;
         }
 
-       Vector3 pickupSurfacePosition =
-            GradingPedestalSpawner
-                .GradedCardRestPosition;
-
-        Vector3 spawnPosition =
-            pickupSurfacePosition +
-            GetCardSpawnOffset(
-                spawnIndex
+        if (!GradingPedestalSpawner.TryGetReturnPlacement(
+                spawnIndex,
+                out Vector3 spawnPosition,
+                out Quaternion spawnRotation))
+        {
+            Plugin.Log.LogError(
+                $"GRADING RETURN ERROR | " +
+                $"CardId={job.CardId} | " +
+                $"Reason=Return placement unavailable"
             );
 
-        spawnPosition.y = -0.88f;
+            return false;
+        }
 
         GameObject obj =
             Object.Instantiate(
                 card.ItemAsset.spawnPrefab,
                 spawnPosition,
-                Quaternion.identity
+                spawnRotation
             );
 
         CardInstanceData instanceData =
@@ -183,7 +185,8 @@ public static class GradingReturnSpawner
 
         returnData.Initialize(
             job.JobId,
-            spawnPosition
+            spawnPosition,
+            spawnRotation
         );
 
         GrabbableObject grabbable =
@@ -235,40 +238,25 @@ public static class GradingReturnSpawner
             finalValue
         );
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"GRADING SCRAP VALUE APPLIED | " +
             $"CardId={job.CardId} | " +
             $"Grade={job.Grade} | " +
             $"Value=${finalValue}"
-        );
+        ); */
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"GRADING CARD RETURNED | " +
             $"JobId={job.JobId} | " +
             $"CardId={job.CardId} | " +
             $"Variant={job.Variant} | " +
             $"Grade={job.Grade} | " +
             $"Value=${finalValue} | " +
-            $"Position={spawnPosition}"
-        );
+            $"Position={spawnPosition} | " +
+            $"Rotation={spawnRotation.eulerAngles}"
+        ); */
 
         return true;
-    }
-
-    private static Vector3 GetCardSpawnOffset(
-        int spawnIndex)
-    {
-        int column =
-            spawnIndex % 3;
-
-        int row =
-            spawnIndex / 3;
-
-        return new Vector3(
-            (column - 1) * 0.55f,
-            0f,
-            row * 0.22f
-        );
     }
 
     public static void Reset()

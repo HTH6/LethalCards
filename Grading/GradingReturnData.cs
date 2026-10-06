@@ -7,19 +7,22 @@ namespace LethalCards.Grading;
 public class GradingReturnData : NetworkBehaviour
 {
     private readonly NetworkVariable<Vector3> displayPosition = new();
+    private readonly NetworkVariable<Quaternion> displayRotation = new();
     private readonly NetworkVariable<bool> onPedestal = new(false);
     private GradingReturnPedestalLock? pedestalLock;
     private bool pendingReturn;
     private Vector3 pendingPosition;
+    private Quaternion pendingRotation = Quaternion.identity;
     private bool claimed;
 
     // Job IDs remain private to the server; clients only need presentation state.
     public string JobId { get; private set; } = "";
 
-    public void Initialize(string jobId, Vector3 position)
+    public void Initialize(string jobId, Vector3 position, Quaternion rotation)
     {
         JobId = jobId;
         pendingPosition = position;
+        pendingRotation = rotation;
         pendingReturn = true;
         claimed = false;
     }
@@ -29,9 +32,11 @@ public class GradingReturnData : NetworkBehaviour
         base.OnNetworkSpawn();
         onPedestal.OnValueChanged += OnDisplayChanged;
         displayPosition.OnValueChanged += OnPositionChanged;
+        displayRotation.OnValueChanged += OnRotationChanged;
         if (IsServer && pendingReturn)
         {
             displayPosition.Value = pendingPosition;
+            displayRotation.Value = pendingRotation;
             onPedestal.Value = true;
             pendingReturn = false;
         }
@@ -42,12 +47,14 @@ public class GradingReturnData : NetworkBehaviour
     {
         onPedestal.OnValueChanged -= OnDisplayChanged;
         displayPosition.OnValueChanged -= OnPositionChanged;
+        displayRotation.OnValueChanged -= OnRotationChanged;
         ReleaseDisplay();
         base.OnNetworkDespawn();
     }
 
     private void OnDisplayChanged(bool previous, bool current) => RefreshDisplay();
     private void OnPositionChanged(Vector3 previous, Vector3 current) => RefreshDisplay();
+    private void OnRotationChanged(Quaternion previous, Quaternion current) => RefreshDisplay();
 
     private void RefreshDisplay()
     {
@@ -58,7 +65,7 @@ public class GradingReturnData : NetworkBehaviour
         }
         if (pedestalLock == null)
             pedestalLock = gameObject.AddComponent<GradingReturnPedestalLock>();
-        pedestalLock.Initialize(displayPosition.Value, Quaternion.identity);
+        pedestalLock.Initialize(displayPosition.Value, displayRotation.Value);
     }
 
     private void ReleaseDisplay()

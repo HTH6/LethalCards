@@ -9,12 +9,12 @@ public static class CollectionManager
 
     private static readonly HashSet<string> DiscoveredVariants = new();
 
-    public static void RegisterPull(CardPull pull)
+    public static bool RegisterPull(CardPull pull)
     {
         if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsServer)
-            return;
+            return false;
         if (pull.Card == null)
-            return;
+            return false;
 
         string cardId = pull.Card.CardId;
 
@@ -55,10 +55,11 @@ public static class CollectionManager
             {
                 CollectionSaveManager.Save();
 
-                CollectionNetworkSync
-                    .BroadcastSnapshot();
+                return CollectionNetworkSync.BroadcastSnapshot();
             }
         }
+
+        return true;
     }
 
     public static bool HasCard(string cardId)

@@ -11,8 +11,13 @@ namespace LethalCards.Networking;
 [HarmonyPatch(typeof(StartOfRound))]
 public static class SessionLifecyclePatch
 {
+    private const float ReturnRestoreSafetyDelay = 0.25f;
+    private const float ReturnPedestalSlowLoadWarning = 5f;
     private static bool companyActive;
     private static float nextUpdate;
+    private static float companySceneReadyTime;
+    private static float returnRestoreTime = -1f;
+    private static bool returnReadinessWarningLogged;
 
     [HarmonyPatch("Start"), HarmonyPrefix]
     private static void StartPrefix() => ResetSession();
@@ -47,24 +52,55 @@ public static class SessionLifecyclePatch
         else
             CollectionNetworkSync.EnsureSnapshot();
 
-        bool ready = __instance.shipHasLanded && !__instance.shipIsLeaving && !__instance.inShipPhase &&
-            __instance.currentLevel != null &&
+        bool companySceneReady = !__instance.shipIsLeaving && __instance.currentLevel != null &&
             __instance.currentLevel.PlanetName.Contains("Gordion", System.StringComparison.OrdinalIgnoreCase) &&
             Object.FindObjectOfType<DepositItemsDesk>() != null;
 
-        if (ready)
+        if (companySceneReady)
         {
-            companyActive = true;
-            // Local scenery and interaction on every peer; authoritative cards on server only.
+            if (!companyActive)
+            {
+                companyActive = true;
+                companySceneReadyTime = Time.realtimeSinceStartup;
+                returnRestoreTime = -1f;
+                returnReadinessWarningLogged = false;
+            }
+
+            // Local scenery and interaction appear as soon as the Company scene is initialized.
             GradingPedestalSpawner.TrySpawn();
-            if (manager.IsServer)
-                GradingReturnSpawner.TrySpawnReadyCards();
+
+            if (manager.IsServer && GradingPedestalSpawner.IsReturnPedestalReady)
+            {
+                if (returnRestoreTime < 0f)
+                {
+                    returnRestoreTime = Time.realtimeSinceStartup + ReturnRestoreSafetyDelay;
+                    Plugin.Log.LogInfo("GRADING PEDESTALS READY");
+                }
+                else if (Time.realtimeSinceStartup >= returnRestoreTime)
+                {
+                    GradingReturnSpawner.TrySpawnReadyCards();
+                }
+            }
+            else if (manager.IsServer)
+            {
+                // Readiness must remain continuous through the safety delay.
+                returnRestoreTime = -1f;
+                if (!returnReadinessWarningLogged &&
+                    Time.realtimeSinceStartup - companySceneReadyTime >= ReturnPedestalSlowLoadWarning)
+                {
+                    returnReadinessWarningLogged = true;
+                    Plugin.Log.LogWarning("GRADING RETURN WAITING | Return pedestal still initializing");
+                }
+            }
         }
         else if (companyActive)
         {
             GradingReturnSpawner.Reset();
             GradingPedestalSpawner.Reset();
             companyActive = false;
+            companySceneReadyTime = 0f;
+            returnRestoreTime = -1f;
+            returnReadinessWarningLogged = false;
         }
     }
 
@@ -84,5 +120,8 @@ public static class SessionLifecyclePatch
         DebugSpawnPatch.Reset();
         companyActive = false;
         nextUpdate = 0f;
+        companySceneReadyTime = 0f;
+        returnRestoreTime = -1f;
+        returnReadinessWarningLogged = false;
     }
 }

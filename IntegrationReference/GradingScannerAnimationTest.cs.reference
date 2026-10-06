@@ -1,0 +1,541 @@
+using System.Collections;
+using TMPro;
+using UnityEngine;
+
+public class GradingScannerAnimationTest : MonoBehaviour
+{
+    [Header("Card")]
+    [SerializeField] private GameObject testCard;
+    [SerializeField] private Transform cardSubmissionAnchor;
+    [SerializeField] private Transform cardDropPoint;
+
+    [Header("Scanner")]
+    [SerializeField] private GameObject scanBeam;
+    [SerializeField] private Transform scanStartPoint;
+    [SerializeField] private Transform scanEndPoint;
+
+    [SerializeField] private Transform scanFanPivot;
+    [SerializeField] private GameObject scanBeamFan;
+    [SerializeField] private Light scanSpotLight;
+
+    [SerializeField] private AudioSource scanAudioSource;
+
+    [Header("Display")]
+    [SerializeField] private TMP_Text screenText;
+    [SerializeField] private GameObject statusGreen;
+    [SerializeField] private GameObject statusRed;
+
+    [Header("Screen Flicker")]
+    [SerializeField] private Renderer screenRenderer;
+    [SerializeField] private float flickerSpeed = 18f;
+    [SerializeField] private float flickerAmount = 0.04f;
+
+    private Material screenMaterial;
+    private Color baseEmissionColor;
+
+    [Header("Screen Glitch")]
+    [SerializeField] private float minGlitchInterval = 4f;
+    [SerializeField] private float maxGlitchInterval = 9f;
+    [SerializeField] private float glitchDuration = 0.06f;
+    [SerializeField] private float glitchBrightness = 0.35f;
+
+    private float nextGlitchTime;
+    private float glitchMultiplier = 1f;
+
+    [SerializeField] private float textGlitchOffset = 6f;
+    [SerializeField] private float textGlitchStep = 0.015f;
+
+    private RectTransform screenTextRect;
+    private Vector2 screenTextBasePosition;
+
+    [Header("Insufficient Credits")]
+    [SerializeField] private float insufficientCreditsDuration = 1.25f;
+
+    [ColorUsage(true, true)]
+    [SerializeField] private Color insufficientCreditsEmission =
+        new Color(4f, 0f, 0f, 1f);
+
+    private Color idleEmissionColor;
+
+    [Header("Card Drop")]
+    [SerializeField] private GameObject cardSlotOpening;
+    [SerializeField] private float slotOpenDuration = 0.12f;
+
+    [SerializeField] private float cursorBlinkInterval = 0.5f;
+
+    [SerializeField] private AudioSource cardDropAudioSource;
+
+    private bool cursorVisible = true;
+    private float cursorBlinkTimer;
+    private string idleText = "> SUBMIT CARD FOR GRADING";
+
+    private Vector3 cardSlotFullScale;
+
+    
+
+    [Header("Timing")]
+    [SerializeField] private float scanningDelay = 0.35f;
+    [SerializeField] private float scanDuration = 1.1f;
+    [SerializeField] private float postScanPause = 0.25f;
+    [SerializeField] private float dropDuration = 0.45f;
+    [SerializeField] private float successDuration = 0.8f;
+
+    private Coroutine animationRoutine;
+
+    private void Start()
+    {
+        if (cardSlotOpening != null)
+            cardSlotFullScale = cardSlotOpening.transform.localScale;
+
+        if (screenText != null)
+        {
+            screenTextRect = screenText.rectTransform;
+            screenTextBasePosition = screenTextRect.anchoredPosition;
+        }
+
+        if (screenRenderer != null)
+        {
+            screenMaterial = screenRenderer.material;
+            baseEmissionColor = screenMaterial.GetColor("_EmissiveColor");
+
+            idleEmissionColor = baseEmissionColor;
+        }
+
+        nextGlitchTime = Time.time + Random.Range(
+            minGlitchInterval,
+            maxGlitchInterval
+        );
+        SetIdleState();
+    }
+
+   private void Update()
+    {
+        // Blink cursor only while idle.
+        if (animationRoutine == null)
+        {
+            cursorBlinkTimer += Time.deltaTime;
+
+            if (cursorBlinkTimer >= cursorBlinkInterval)
+            {
+                cursorBlinkTimer = 0f;
+                cursorVisible = !cursorVisible;
+
+                if (screenText != null)
+                {
+                    screenText.text =
+                        idleText + (cursorVisible ? "_" : "");
+                }
+            }
+        }
+
+        if (Time.time >= nextGlitchTime)
+        {
+            StartCoroutine(ScreenGlitch());
+
+            nextGlitchTime = Time.time + Random.Range(
+                minGlitchInterval,
+                maxGlitchInterval
+            );
+        }
+
+        if (screenMaterial != null)
+        {
+            float noise = Mathf.PerlinNoise(
+                Time.time * flickerSpeed,
+                0f
+            );
+
+            float brightness =
+                1f + ((noise - 0.5f) * 2f * flickerAmount);
+
+            brightness *= glitchMultiplier;
+
+            screenMaterial.SetColor(
+                "_EmissiveColor",
+                baseEmissionColor * brightness
+            );
+        }
+
+        // Temporary prototype input.
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            PlayTestAnimation();
+        }
+    }
+
+    public void PlayTestAnimation()
+    {
+        if (animationRoutine != null)
+            StopCoroutine(animationRoutine);
+
+        animationRoutine = StartCoroutine(ScannerSequence());
+    }
+
+    public void PlayNotEnoughCredits()
+    {
+        if (animationRoutine != null)
+            StopCoroutine(animationRoutine);
+
+        animationRoutine = StartCoroutine(NotEnoughCreditsSequence());
+    }
+
+    private IEnumerator ScannerSequence()
+    {
+        // -------------------------
+        // PRESENT CARD
+        // -------------------------
+
+        testCard.SetActive(true);
+
+        testCard.transform.position =
+            cardSubmissionAnchor.position;
+
+        testCard.transform.rotation =
+            cardSubmissionAnchor.rotation;
+
+        // -------------------------
+        // SCANNING STATE
+        // -------------------------
+
+        screenText.text = "SCANNING";
+
+        statusGreen.SetActive(false);
+        statusRed.SetActive(true);
+
+        scanBeam.SetActive(false);
+
+        yield return new WaitForSeconds(scanningDelay);
+
+        // -------------------------
+        // START SCAN
+        // -------------------------
+
+        scanBeam.transform.position =
+            scanStartPoint.position;
+
+        scanBeam.SetActive(true);
+        scanBeamFan.SetActive(true);
+        scanSpotLight.enabled = true;
+
+        if (scanAudioSource != null)
+            scanAudioSource.Play();
+
+        float elapsed = 0f;
+
+        while (elapsed < scanDuration)
+        {
+            elapsed += Time.deltaTime;
+
+            float t = Mathf.Clamp01(elapsed / scanDuration);
+
+            // Animate scanning dots based on scan progress.
+            int dotCount = Mathf.Clamp(
+                Mathf.FloorToInt(t * 4f),
+                0,
+                3
+            );
+
+            screenText.text =
+                "SCANNING" + new string('.', dotCount);
+
+            Vector3 scanPosition = Vector3.Lerp(
+                scanStartPoint.position,
+                scanEndPoint.position,
+                t
+            );
+
+            // Move the bright scan line across the card.
+            scanBeam.transform.position = scanPosition;
+
+            // Aim the fan/light toward the moving scan line.
+            Vector3 worldDirection =
+                (scanPosition - scanFanPivot.position).normalized;
+
+            Vector3 localDirection =
+                scanFanPivot.parent.InverseTransformDirection(worldDirection);
+
+            scanFanPivot.localRotation =
+                Quaternion.FromToRotation(
+                    Vector3.down,
+                    localDirection
+                );
+
+            yield return null;
+        }
+
+        scanBeam.transform.position =
+            scanEndPoint.position;
+
+        screenText.text = "SCANNING...";
+
+        yield return new WaitForSeconds(postScanPause);
+
+        scanBeam.SetActive(false);
+        scanBeamFan.SetActive(false);
+        scanSpotLight.enabled = false;
+
+        if (scanAudioSource != null)
+            scanAudioSource.Stop();
+
+        // -------------------------
+        // OPEN CARD SLOT
+        // -------------------------
+
+        yield return StartCoroutine(OpenCardSlot());
+
+        // -------------------------
+        // DROP CARD
+        // -------------------------
+
+        Vector3 dropStart =
+            testCard.transform.position;
+
+        Quaternion dropRotation =
+            testCard.transform.rotation;
+
+        if (cardDropAudioSource != null)
+            cardDropAudioSource.Play();
+            
+        elapsed = 0f;
+
+        while (elapsed < dropDuration)
+        {
+            elapsed += Time.deltaTime;
+
+            float t =
+                Mathf.Clamp01(elapsed / dropDuration);
+
+            // Slight ease-in as the card falls.
+            t = t * t;
+
+            testCard.transform.position =
+                Vector3.Lerp(
+                    dropStart,
+                    cardDropPoint.position,
+                    t
+                );
+
+            testCard.transform.rotation =
+                dropRotation;
+
+            yield return null;
+        }
+
+        testCard.SetActive(false);
+
+        // -------------------------
+        // CLOSE CARD SLOT
+        // -------------------------
+
+        yield return StartCoroutine(CloseCardSlot());
+
+        // -------------------------
+        // SUCCESS
+        // -------------------------
+
+        statusRed.SetActive(false);
+        statusGreen.SetActive(true);
+
+        screenText.text = "SUBMISSION COMPLETE!";
+
+        yield return new WaitForSeconds(successDuration);
+
+        animationRoutine = null;
+
+        SetIdleState();
+    }
+
+    private IEnumerator NotEnoughCreditsSequence()
+    {
+        // Stop any scanner visuals.
+        if (scanBeam != null)
+            scanBeam.SetActive(false);
+
+        if (scanBeamFan != null)
+            scanBeamFan.SetActive(false);
+
+        if (scanSpotLight != null)
+            scanSpotLight.enabled = false;
+
+        // Error lights.
+        if (statusGreen != null)
+            statusGreen.SetActive(false);
+
+        if (statusRed != null)
+            statusRed.SetActive(true);
+
+        // Turn the screen red.
+        baseEmissionColor = insufficientCreditsEmission;
+
+        if (screenMaterial != null)
+        {
+            screenMaterial.SetColor(
+                "_EmissiveColor",
+                baseEmissionColor
+            );
+        }
+
+        // Error message.
+        if (screenText != null)
+            screenText.text = "NOT ENOUGH\nCREDITS";
+
+        yield return new WaitForSeconds(insufficientCreditsDuration);
+
+        // Restore normal green screen emission.
+        baseEmissionColor = idleEmissionColor;
+
+        if (screenMaterial != null)
+        {
+            screenMaterial.SetColor(
+                "_EmissiveColor",
+                baseEmissionColor
+            );
+        }
+
+        animationRoutine = null;
+
+        SetIdleState();
+    }
+
+    private IEnumerator ScreenGlitch()
+    {
+        glitchMultiplier = glitchBrightness;
+
+        if (screenTextRect != null)
+        {
+            float elapsed = 0f;
+
+            while (elapsed < glitchDuration)
+            {
+                screenTextRect.anchoredPosition =
+                    screenTextBasePosition +
+                    new Vector2(
+                        Random.Range(-textGlitchOffset, textGlitchOffset),
+                        Random.Range(-textGlitchOffset * 0.25f,
+                                    textGlitchOffset * 0.25f)
+                    );
+
+                yield return new WaitForSeconds(textGlitchStep);
+
+                elapsed += textGlitchStep;
+            }
+
+            screenTextRect.anchoredPosition = screenTextBasePosition;
+        }
+        else
+        {
+            yield return new WaitForSeconds(glitchDuration);
+        }
+
+        glitchMultiplier = 1f;
+    }
+
+    private IEnumerator OpenCardSlot()
+    {
+        cardSlotOpening.SetActive(true);
+
+        // Start collapsed at the center.
+        Vector3 startScale = new Vector3(
+            0.01f,
+            cardSlotFullScale.y,
+            0.01f
+        );
+
+        cardSlotOpening.transform.localScale = startScale;
+
+        float elapsed = 0f;
+
+        while (elapsed < slotOpenDuration)
+        {
+            elapsed += Time.deltaTime;
+
+            float t = Mathf.Clamp01(elapsed / slotOpenDuration);
+
+            // Smooth but very quick expansion.
+            t = Mathf.SmoothStep(0f, 1f, t);
+
+            cardSlotOpening.transform.localScale =
+                Vector3.Lerp(
+                    startScale,
+                    cardSlotFullScale,
+                    t
+                );
+
+            yield return null;
+        }
+
+        cardSlotOpening.transform.localScale = cardSlotFullScale;
+    }
+
+    private IEnumerator CloseCardSlot()
+    {
+        Vector3 closedScale = new Vector3(
+            0.01f,
+            cardSlotFullScale.y,
+            0.01f
+        );
+
+        float elapsed = 0f;
+
+        while (elapsed < slotOpenDuration)
+        {
+            elapsed += Time.deltaTime;
+
+            float t = Mathf.Clamp01(elapsed / slotOpenDuration);
+            t = Mathf.SmoothStep(0f, 1f, t);
+
+            cardSlotOpening.transform.localScale =
+                Vector3.Lerp(
+                    cardSlotFullScale,
+                    closedScale,
+                    t
+                );
+
+            yield return null;
+        }
+
+        cardSlotOpening.transform.localScale = closedScale;
+        cardSlotOpening.SetActive(false);
+
+        // Restore full scale so it's ready for the next animation.
+        cardSlotOpening.transform.localScale = cardSlotFullScale;
+    }
+
+    private void SetIdleState()
+    {
+        if (testCard != null)
+            testCard.SetActive(false);
+
+        if (scanBeam != null)
+            scanBeam.SetActive(false);
+
+        if (scanSpotLight != null)
+            scanSpotLight.enabled = false;
+        
+        if (scanBeamFan != null)
+            scanBeamFan.SetActive(false);
+
+        if (scanFanPivot != null)
+            scanFanPivot.localRotation = Quaternion.identity;
+
+        if (cardSlotOpening != null)
+        {
+            cardSlotOpening.SetActive(false);
+
+            if (cardSlotFullScale != Vector3.zero)
+                cardSlotOpening.transform.localScale = cardSlotFullScale;
+        }
+
+        if (statusGreen != null)
+            statusGreen.SetActive(true);
+
+        if (statusRed != null)
+            statusRed.SetActive(false);
+
+        cursorBlinkTimer = 0f;
+        cursorVisible = true;
+
+        if (screenText != null)
+            screenText.text = idleText + "_";
+    }
+}

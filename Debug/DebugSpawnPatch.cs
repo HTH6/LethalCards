@@ -52,7 +52,7 @@ public static class DebugSpawnPatch
             box.isInElevator = true;
             box.SetScrapValue(Random.Range(item.minValue, item.maxValue));
             obj.GetComponent<NetworkObject>().Spawn();
-            Plugin.Log.LogInfo($"DEBUG BOOSTER BOX SPAWN | Type={type} | Position={position}");
+            // Plugin.Log.LogInfo($"DEBUG BOOSTER BOX SPAWN | Type={type} | Position={position}");
         }
         catch (System.Exception exception)
         {
@@ -95,10 +95,10 @@ public static class DebugSpawnPatch
         if (spawnedTestPacks)
             return;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"DEBUG PATCH: Player ready | " +
             $"Position={player.transform.position}"
-        );
+        ); */
 
         SpawnBooster(
             Plugin.LightBoosterItem,
@@ -116,9 +116,9 @@ public static class DebugSpawnPatch
 
         spawnedTestPacks = true;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             "DEBUG PATCH: Test booster spawn attempt complete."
-        );
+        ); */
     }
 
     private static void SpawnBooster(
@@ -151,13 +151,13 @@ public static class DebugSpawnPatch
             player.transform.right * horizontalOffset +
             Vector3.up * 1f;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"DEBUG SPAWN REQUEST | " +
             $"Type={label} | " +
             $"Prefab={item.spawnPrefab.name} | " +
             $"PlayerPos={player.transform.position} | " +
             $"SpawnPos={spawnPosition}"
-        );
+        ); */
 
         GameObject obj =
             Object.Instantiate(
@@ -166,13 +166,13 @@ public static class DebugSpawnPatch
                 Quaternion.identity
             );
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"DEBUG INSTANTIATED | " +
             $"Type={label} | " +
             $"Name={obj.name} | " +
             $"Position={obj.transform.position} | " +
             $"Active={obj.activeInHierarchy}"
-        );
+        ); */
 
         NetworkObject networkObject =
             obj.GetComponent<NetworkObject>();
@@ -188,11 +188,11 @@ public static class DebugSpawnPatch
             return;
         }
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"DEBUG NETWORK BEFORE | " +
             $"Type={label} | " +
             $"IsSpawned={networkObject.IsSpawned}"
-        );
+        ); */
 
         networkObject.Spawn();
 
@@ -202,12 +202,12 @@ public static class DebugSpawnPatch
                 obj.transform.position
             );
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"DEBUG NETWORK AFTER | " +
             $"Type={label} | " +
             $"IsSpawned={networkObject.IsSpawned} | " +
             $"Position={obj.transform.position} | " +
             $"Distance={distance:F2}m"
-        );
+        ); */
     }
 }

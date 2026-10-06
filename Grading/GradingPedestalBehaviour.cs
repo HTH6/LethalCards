@@ -130,6 +130,7 @@ public class GradingPedestalBehaviour : MonoBehaviour
             terminal.groupCredits <
             CostPerCard)
         {
+            GradingNetworkSync.SendInsufficientCreditsPresentation(player.actualClientId);
             Plugin.Log.LogInfo(
                 $"GRADING REJECTED | " +
                 $"CardId={cardData.CardId} | " +
@@ -183,12 +184,14 @@ public class GradingPedestalBehaviour : MonoBehaviour
                 currentDay
             );
 
-        /* Retained immediate-return test path.
+        // Cosmetic only: capture authoritative identity/variant before the real card is consumed.
+        GradingNetworkSync.BroadcastSubmissionPresentation(cardData.CardId, cardData.Variant);
+
+        // Spawn the return immediately while the instant-grading test override is enabled.
         if (GradingManager.InstantGradingForTesting)
         {
             GradingReturnSpawner.TrySpawnReadyCards();
         }
-        */
 
         Plugin.Log.LogInfo(
             $"GRADING SUBMITTED | " +
@@ -215,18 +218,18 @@ public class GradingPedestalBehaviour : MonoBehaviour
             return;
         }
 
-        Plugin.Log.LogInfo(
-            $"GRADING REMOVE CARD | " +
-            $"Player={player.playerUsername} | " +
-            $"Object={heldObject.name} | " +
-            $"Slot={player.currentItemSlot}"
-        );
+        // Plugin.Log.LogInfo(
+        //     $"GRADING REMOVE CARD | " +
+        //     $"Player={player.playerUsername} | " +
+        //     $"Object={heldObject.name} | " +
+        //     $"Slot={player.currentItemSlot}"
+        // );
 
         heldObject.GetComponent<NetworkItemConsumption>().ConsumeServer();
 
-        Plugin.Log.LogInfo(
-            "GRADING CARD REMOVED | " +
-            "Server consumption completed."
-        );
+        // Plugin.Log.LogInfo(
+        //     "GRADING CARD REMOVED | " +
+        //     "Server consumption completed."
+        // );
     }
 }

@@ -87,13 +87,13 @@ public static class CardSavePatch
                 data.Grade
             );
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD SAVE DATA | " +
             $"CardId={data.CardId} | " +
             $"Variant={data.Variant} | " +
             $"Grade={data.Grade} | " +
             $"Encoded={__result}"
-        );
+        ); */
     }
 }
 
@@ -144,12 +144,12 @@ public static class CardLoadPatch
         // CardInstanceData applies physical value after pending initialization
         // and whenever replicated metadata arrives on clients.
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD LOAD DATA | " +
             $"CardId={card.CardId} | " +
             $"Variant={variant} | " +
             $"Grade={grade} | " +
             $"Encoded={saveData}"
-        );
+        ); */
     }
 }

@@ -111,17 +111,17 @@ public static class CollectionNetworkSync
             return;
         }
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"COLLECTION NETWORK | " +
             $"Client connected: {clientId}"
-        );
+        ); */
 
         SendSnapshotToClient(
             clientId
         );
     }
 
-    public static void BroadcastSnapshot()
+    public static bool BroadcastSnapshot()
     {
         NetworkManager manager =
             NetworkManager.Singleton;
@@ -131,9 +131,10 @@ public static class CollectionNetworkSync
             !manager.IsServer ||
             !manager.IsListening)
         {
-            return;
+            return false;
         }
 
+        bool succeeded = true;
         foreach (
             ulong clientId in
             manager.ConnectedClientsIds)
@@ -145,13 +146,14 @@ public static class CollectionNetworkSync
                 continue;
             }
 
-            SendSnapshotToClient(
-                clientId
-            );
+            if (!SendSnapshotToClient(clientId))
+                succeeded = false;
         }
+
+        return succeeded;
     }
 
-    private static void SendSnapshotToClient(
+    private static bool SendSnapshotToClient(
         ulong clientId)
     {
         NetworkManager manager =
@@ -161,7 +163,7 @@ public static class CollectionNetworkSync
             manager == null ||
             !manager.IsServer)
         {
-            return;
+            return false;
         }
 
         // A join can precede the first round update/load.
@@ -183,34 +185,39 @@ public static class CollectionNetworkSync
                     .OrderBy(x => x)
             );
 
-        using FastBufferWriter writer =
-            new FastBufferWriter(
-                8192,
-                Allocator.Temp
-            );
+        int serializedBytes = FastBufferWriter.GetWriteSize(cardData) +
+            FastBufferWriter.GetWriteSize(variantData);
+        int entryCount = CollectionManager.DiscoveredCardCount +
+            CollectionManager.DiscoveredVariantCount;
 
-        writer.WriteValueSafe(
-            cardData
-        );
+        try
+        {
+            using FastBufferWriter writer = new(serializedBytes, Allocator.Temp);
+            writer.WriteValueSafe(cardData);
+            writer.WriteValueSafe(variantData);
 
-        writer.WriteValueSafe(
-            variantData
-        );
-
-        manager.CustomMessagingManager
-            .SendNamedMessage(
+            manager.CustomMessagingManager.SendNamedMessage(
                 MessageName,
                 clientId,
                 writer,
-                NetworkDelivery.ReliableSequenced
-            );
+                NetworkDelivery.ReliableFragmentedSequenced);
 
-        Plugin.Log.LogInfo(
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogError(
+                $"COLLECTION SYNC FAILED | ClientId={clientId} | EntryCount={entryCount} | " +
+                $"SerializedBytes={serializedBytes} | Exception={exception}");
+            return false;
+        }
+
+        /* Plugin.Log.LogInfo(
             $"COLLECTION NETWORK SEND | " +
             $"Client={clientId} | " +
             $"Cards={CollectionManager.DiscoveredCardCount} | " +
             $"Variants={CollectionManager.DiscoveredVariantCount}"
-        );
+        ); */
     }
 
     private static void ReceiveCollection(
@@ -251,12 +258,12 @@ public static class CollectionNetworkSync
         );
         receivedSnapshot = true;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"COLLECTION NETWORK RECEIVED | " +
             $"From={senderClientId} | " +
             $"Cards={CollectionManager.DiscoveredCardCount} | " +
             $"Variants={CollectionManager.DiscoveredVariantCount}"
-        );
+        ); */
     }
 
     private static List<string> SplitLines(

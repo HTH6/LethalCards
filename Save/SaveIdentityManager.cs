@@ -61,11 +61,11 @@ public static class SaveIdentityManager
                 currentSaveName =
                     saveName;
 
-                Plugin.Log.LogInfo(
+                /* Plugin.Log.LogInfo(
                     $"SAVE IDENTITY LOADED | " +
                     $"Save={saveName} | " +
                     $"Id={currentSaveIdentity}"
-                );
+                ); */
 
                 return currentSaveIdentity;
             }
@@ -89,17 +89,17 @@ public static class SaveIdentityManager
             Cards.CollectionManager.Clear();
             Cards.CollectionSaveManager.ResetLoadedSave();
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"SAVE IDENTITY RUNTIME RESET | " +
                 $"Save={saveName} | " +
                 $"Cleared grading jobs, grading day, and collection."
-            );
+            ); */
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"SAVE IDENTITY CREATED | " +
                 $"Save={saveName} | " +
                 $"Id={currentSaveIdentity}"
-            );
+            ); */
 
             return currentSaveIdentity;
         }

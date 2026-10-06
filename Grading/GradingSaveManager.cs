@@ -66,13 +66,13 @@ public static class GradingSaveManager
 
         if (!File.Exists(path))
         {
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"GRADING LOAD | " +
                 $"No save found | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
 
             return;
         }
@@ -210,14 +210,14 @@ public static class GradingSaveManager
                 }
             }
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"GRADING LOAD | " +
                 $"Jobs={loadedJobs} | " +
                 $"Day={GradingDayManager.CurrentDay} | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
         }
         catch (Exception ex)
         {
@@ -296,14 +296,14 @@ public static class GradingSaveManager
                 lines
             );
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"GRADING SAVE | " +
                 $"Jobs={GradingManager.Jobs.Count} | " +
                 $"Day={GradingDayManager.CurrentDay} | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
         }
         catch (Exception ex)
         {

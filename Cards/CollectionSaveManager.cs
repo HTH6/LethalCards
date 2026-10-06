@@ -60,13 +60,13 @@ public static class CollectionSaveManager
         {
             CollectionManager.Clear();
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"COLLECTION LOAD | " +
                 $"No save found | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
 
             return;
         }
@@ -115,14 +115,14 @@ public static class CollectionSaveManager
                 variants
             );
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"COLLECTION LOADED | " +
                 $"Cards={cards.Count} | " +
                 $"Variants={variants.Count} | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
         }
         catch (Exception ex)
         {
@@ -206,14 +206,14 @@ public static class CollectionSaveManager
                 lines
             );
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"COLLECTION SAVED | " +
                 $"Cards={CollectionManager.DiscoveredCardCount} | " +
                 $"Variants={CollectionManager.DiscoveredVariantCount} | " +
                 $"Save={saveName} | " +
                 $"Identity={saveIdentity} | " +
                 $"Path={path}"
-            );
+            ); */
         }
         catch (Exception ex)
         {

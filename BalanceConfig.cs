@@ -27,8 +27,8 @@ internal static class BalanceConfig
     private static readonly WeightedGodPackTable DefaultGodPack = new(60f, 40f);
     private static readonly WeightedBoosterBoxTable DefaultStandardBoxPackMix = new(90f, 10f);
     private static readonly WeightedGradeTable DefaultGrades = new(
-        95f / 9f, 95f / 9f, 95f / 9f, 95f / 9f, 95f / 9f,
-        95f / 9f, 95f / 9f, 95f / 9f, 95f / 9f, 5f);
+        2f, 4f, 6f, 8f, 10f,
+        12f, 13f, 23f, 17f, 5f);
 
     internal static WeightedRarityTable LightSlot1 { get; private set; } = DefaultLightSlot1;
     internal static WeightedRarityTable LightSlot2 { get; private set; } = DefaultLightSlot2;

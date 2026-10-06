@@ -116,7 +116,7 @@ public class CardInstanceData : NetworkBehaviour
         RefreshVariantVisuals();
         RefreshScanNodes();
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD NETWORK SPAWN | " +
             $"CardId={CardId} | " +
             $"Variant={Variant} | " +
@@ -124,7 +124,7 @@ public class CardInstanceData : NetworkBehaviour
             $"UngradedValue=${UngradedValue} | " +
             $"FinalValue=${FinalValue} | " +
             $"IsServer={IsServer}"
-        );
+        ); */
     }
 
     public override void OnNetworkDespawn()
@@ -156,14 +156,14 @@ public class CardInstanceData : NetworkBehaviour
         hasPendingInitialization =
             false;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD PENDING DATA APPLIED | " +
             $"CardId={CardId} | " +
             $"Variant={Variant} | " +
             $"Grade={Grade} | " +
             $"UngradedValue=${UngradedValue} | " +
             $"FinalValue=${FinalValue}"
-        );
+        ); */
     }
 
     // ============================================================
@@ -215,13 +215,13 @@ public class CardInstanceData : NetworkBehaviour
         hasPendingInitialization =
             true;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD INSTANCE INITIALIZED PENDING | " +
             $"CardId={CardId} | " +
             $"Variant={pendingVariant} | " +
             $"Value=${pendingUngradedValue} | " +
             $"Grade={pendingGrade}"
-        );
+        ); */
 
         // This normally won't happen because cards are
         // initialized before NetworkObject.Spawn(), but it
@@ -286,13 +286,13 @@ public class CardInstanceData : NetworkBehaviour
         hasPendingInitialization =
             true;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD INSTANCE RESTORED PENDING | " +
             $"CardId={CardId} | " +
             $"Variant={pendingVariant} | " +
             $"Value=${pendingUngradedValue} | " +
             $"Grade={pendingGrade}"
-        );
+        ); */
 
         // Handles any future case where restoration happens
         // after the object has already spawned.
@@ -373,6 +373,7 @@ public class CardInstanceData : NetworkBehaviour
     {
         UpdateCardDisplayName();
         RefreshVariantVisuals();
+        RefreshGradeVisual();
         RefreshScanNodes();
     }
 
@@ -453,6 +454,17 @@ public class CardInstanceData : NetworkBehaviour
             return;
         }
 
+        if (GradedCardSlabPresentation.Ensure(this))
+        {
+            if (gradeLabel != null)
+            {
+                Destroy(gradeLabel.gameObject);
+                gradeLabel = null;
+            }
+
+            return;
+        }
+
         if (gradeLabel == null)
         {
             CreateGradeLabel();
@@ -525,11 +537,11 @@ public class CardInstanceData : NetworkBehaviour
         gradeLabel.enableWordWrapping =
             false;
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD GRADE LABEL CREATED | " +
             $"CardId={CardId} | " +
             $"Grade={Grade}"
-        );
+        ); */
     }
 
     // ============================================================
@@ -561,7 +573,7 @@ public class CardInstanceData : NetworkBehaviour
 
         RefreshGradeVisual();
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"CARD GRADED | " +
             $"CardId={CardId} | " +
             $"Variant={Variant} | " +
@@ -570,7 +582,7 @@ public class CardInstanceData : NetworkBehaviour
             $"Multiplier=" +
             $"{CardGrading.GetMultiplier(Grade)}x | " +
             $"Final=${finalValue}"
-        );
+        ); */
 
         return finalValue;
     }

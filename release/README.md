@@ -1,147 +1,431 @@
 # Lethal Cards
 
-**Version 0.1.3 - playtesting release**
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HTH6/LethalCards/main/images/LethalCardsBanner.png" width="800">
+</p>
 
-Collect Lethal Company trading cards, discover variants, open booster packs and boxes, and submit cards for grading at the Company. This build is for playtesting; balance, presentation, and multiplayer behavior are still being refined.
+[YouTube Trailer / Showcase](YOUTUBE_LINK_HERE)
 
-## Current Features
+**Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
 
-- Full 33-card Set 1 roster across five rarities.
-- Light and Heavy Booster Packs containing three cards each.
-- Standard and Golden Booster Boxes containing four sealed packs each.
-- Standard, Foil, Alternate Art, and Misprint variants with independent discovery tracking.
-- Vanilla card inspection and per-instance variant-aware scan names.
-- Persistent collection and grading progress isolated by game save.
-- Server-authoritative opening, grading, and returned-card pickup.
-- Collection navigation and grading-status commands for hosts and remote clients.
+Want to support my work? Buy me a coffee via Venmo :)  
+**@hdaddyo**
 
-## Set 1: 33 Cards
+Have suggestions? Add me on discord: @Hdaddyo
+---
 
-| Rarity | Count | Cards |
-|---|---:|---|
-| Common | 10 | Hoarding Bug, Eyeless Dog, Bunker Spider, Hygrodere, Baboon Hawk, Tulip Snake, Manticoil, Roaming Locusts, Backwater Gunkfish, Cadaver Growths |
-| Uncommon | 9 | Snare Flea, Spore Lizard, Butler, Forest Keeper, Franklin, Circuit Bees, Cadaver Bloom, Mask Hornets, Giant Sapsucker |
-| Rare | 7 | Thumper, Coil-Head, Bracken, Barber, Earth Leviathan, Kidnapper Fox, Feiopar |
-| Ultra Rare | 4 | Jester, Nutcracker, Masked, Maneater |
-| Secret Rare | 3 | Ghost Girl, Jeb, Lasso Man |
+## What is Lethal Cards?
 
-Only cards whose assets successfully load are eligible for pulls. Selection is uniform within each rolled rarity; duplicates are allowed. Individual cards do not naturally spawn as loose facility scrap.
+**Lethal Cards** adds collectible trading cards to Lethal Company. Search facilities for booster packs and booster boxes, rip them open, hunt for rare cards and variants, build a persistent collection, and send your best pulls off for grading at the Company Building.
 
-## Booster Packs and Boxes
+Lethal Cards is designed for multiplayer, and **all players in the lobby should have Lethal Cards installed** for everything to function correctly.
 
-Use the normal primary item-use input while holding a pack or box. Control tips show **Rip Pack** or **Open Box** with the available input binding.
+- [Thunderstore](THUNDERSTORE_LINK_HERE)
+- [GitHub](https://github.com/HTH6/LethalCards/)
 
-Normal packs use these slot-specific odds:
+---
 
-| Pack / slot | Common | Uncommon | Rare | Ultra Rare | Secret Rare |
-|---|---:|---:|---:|---:|---:|
-| Light 1 | 72.5% | 20% | 7.5% | 0% | 0% |
-| Light 2 | 69% | 20% | 7.5% | 2.5% | 1% |
-| Light 3 | 58% | 20% | 15% | 5% | 2% |
-| Normal Heavy 1 | 30% | 55% | 10% | 5% | 0% |
-| Normal Heavy 2 | 25% | 50% | 15% | 10% | 0% |
-| Normal Heavy 3 | 20% | 40% | 20% | 15% | 5% |
+## How It Works
 
-Heavy packs have a **5% God Pack chance**, replacing the normal table. Each of the three God Pack slots independently rolls **60% Ultra Rare / 40% Secret Rare**. Normal Heavy packs do not guarantee a Rare-or-better card.
+1. **Find booster packs and booster boxes** inside facilities.
+2. **Rip packs** to reveal three collectible cards.
+3. **Collect cards** across multiple rarity tiers and variants.
+4. **Grade valuable pulls** at the Company Building. By default, grading takes **3 in-game days**.
+5. **Build your collection** and use the terminal's `collection` command to see what you've obtained.
+6. Check submitted cards using the `grading` command and pick up completed graded cards once they're ready.
 
-- **Standard Booster Box:** four independent rolls, each 90% Light / 10% Heavy. Chance of at least one Heavy: 34.39%.
-- **Golden Booster Box:** exactly four Heavy packs.
-- Boxes spawn sealed packs. Cards and variants are generated only when those packs are opened individually.
+---
 
-## Variants and Values
+## Features
 
-| Variant | Chance per card | Ungraded value multiplier |
-|---|---:|---:|
-| Standard | 69% | 1x |
-| Foil | 25% | 1.5x |
-| Alternate Art | 5% | 2x |
-| Misprint | 1% | 3x |
+### 33 Collectible Cards
 
-Variant odds are identical for Light, Heavy, and God Pack cards. Registry base values are modified by variant and grading calculations using the existing rounding rules. Scan names include the variant, including `(Standard)`. More elaborate variant artwork is planned.
+Lethal Cards v1.0.0 includes a full **33-card Set 1**, featuring creatures and characters from across Lethal Company.
 
-## Spawn Configuration
+Cards are divided into five rarity tiers:
 
-Settings are in `BepInEx/config/LethalCards.cfg`:
+- Common
+- Uncommon
+- Rare
+- Ultra Rare
+- Secret Rare
 
-```ini
-[Spawn Weights]
-LightBoosterWeight = 30
-HeavyBoosterWeight = 15
-BoosterBoxWeight = 10
-GoldenBoosterBoxWeight = 5
-```
+### Card Variants
 
-These are current code defaults: relative facility scrap selection weights, not percentages or physical carry weights. Existing config values override defaults. Set a weight to 0 to disable natural spawning for that item, and restart after editing. The host's configuration controls the round's scrap selection.
+Every card can appear as one of four variants:
 
-Settings from a single legacy `*.LethalCards.cfg` file are copied only if the new file does not yet exist. Once `LethalCards.cfg` exists, edit that file; the legacy file is retained but no longer used for these settings.
+- **Standard**
+- **Foil**
+- **Alternate Art**
+- **Misprint**
 
-## Collection and Terminal Commands
+Variants increase the value of a card, with rarer variants providing larger value multipliers.
 
-Pulling a card permanently records that card and its specific variant for the current save, even if the physical card is later sold, graded, dropped, or lost. Viewing collection entries never unlocks them.
+### Booster Packs
 
-| Command | Purpose |
-|---|---|
-| `cards help` | List Lethal Cards commands. |
-| `collection` | Open the collection: three cards per page, variant discovery, and totals. |
-| `collection next` / `collection previous` | Move between collection pages. |
-| `collection page <number>` | Open a numbered page. |
-| `collection <card name>` | Show one card's collection details. |
-| `next` / `prev` / `previous` | Navigate only while browsing collection. |
-| `grading` / `grades` | Show active grading jobs and ready results. |
+Every booster pack contains **3 cards**.
 
-Pages are bounded and do not wrap. Unrelated commands, grading commands, terminal exit, and session reset clear collection context. Names are case-insensitive; `coilhead`, `coil-head`, and `coil head` resolve to Coil-Head.
+#### Light Booster Pack
 
-## Grading
+The standard booster pack, with mostly Common and Uncommon pulls while still offering chances at higher rarities.
 
-Submit an ungraded card at the Company's submission pedestal for **$10**. Grading takes **three grading-day advances**. Each job has its own submission day and stored result.
+#### Heavy Booster Pack
 
-| Days since submission | Status | Results shown |
-|---|---|---|
-| 0 | Processing Order... | Variant-aware name only |
-| 1 | Assessing Grade... | Variant-aware name only |
-| 2 | Shipping Order... | Variant-aware name only |
-| 3+ | Ready for pickup! | Variant-aware name, actual grade, and final scrap value |
+A more valuable booster pack with significantly improved Rare and Ultra Rare odds, plus a chance at Secret Rare cards.
 
-Grading can reduce or increase value; it is not a guaranteed profit. The final value shown in the terminal is stored with the job and applied to the returned card.
+Heavy Booster Packs also have a chance to become special high-rarity **God Packs**.
 
-Ready jobs remain visible until the physical returned card is picked up. Confirmed pickup removes the job; subsequent host and remote commands reflect that removal. Remote status requests are read-only and answered only to the requester. They contain no hidden grade or final value before day 3.
+### Booster Boxes
 
-Existing grading saves remain supported. Older jobs without a stored final value derive it from their saved variant and grade without rerolling.
+#### Standard Booster Box
 
-## Playtest Notes and Known Issues
+Contains **4 booster packs**.
 
-- **Temporary debug behavior is active:** one Standard and one Golden Booster Box spawn on the ship when the host/session is ready. Natural facility spawning is separately enabled.
-- Submission and return pedestals need new designs/models.
-- Returned cards can float above the grading pedestal; placement needs correction.
-- Vanilla card inspection is available; improved rotation controls are planned.
-- Detailed diagnostic logging remains enabled for booster and box troubleshooting.
-- Continue testing host/client opening, item handoffs, grading status, returned-card pickup, final values, save/reload, and save-slot isolation.
-- The full roster and box opening have been confirmed in reported playtests. Not every feature or multiplayer scenario has completed gameplay validation.
+Each pack has a chance to be either:
 
-## Planned Updates
+- Light Booster Pack
+- Heavy Booster Pack
 
-### Needed for V1
+#### Golden Booster Box
 
-- Revamp submission and graded-card pickup pedestals with new designs/models.
-- Fix returned-card placement so cards no longer float above the grading pedestal.
+Contains **4 guaranteed Heavy Booster Packs**.
 
-### V2 Additions
+### Grading System
 
-- Ship collection display case for storing cards.
-- Booster Pack opening animation sequence.
-- More elaborate artwork for Alternate Art, Foil, and Misprint variants.
+Take valuable cards to the **Company Building** and submit them to the grading machine.
 
-### V3 Additions
+Cards receive a grade from **1 through 10**.
 
-- Upgrade shop offering instant grading, better card values, better graded values, increased spawn weights, and increased card rarity rates in packs.
-- Improved inspection with rotation controls for cards, booster packs, and booster boxes.
+Higher grades can significantly increase a card's final value.
 
-Roadmap entries are planned features, not included functionality or release-date commitments.
+By default:
 
-## Installation and Feedback
+- Grading costs **$10 per card**
+- Grading takes **3 in-game days**
+- Completed cards can be picked up from the grading return station
 
-Install through a Thunderstore-compatible mod manager with BepInExPack and LethalLib. For manual installation, install those dependencies and place the Lethal Cards DLL and `lethalcards` AssetBundle together in the mod's BepInEx plugins folder.
+Graded cards are returned inside a collectible slab displaying information such as:
 
-For multiplayer, all players should use the same mod version and AssetBundle with the required dependencies.
+- Card name
+- Variant
+- Set number
+- Grade
+- Grade descriptor
+- Final graded value
 
-For bug reports, include the mod version, host/client role, player count, affected item, reproduction steps, expected/actual behavior, and relevant BepInEx log output.
+### Persistent Collection
+
+Your card collection persists between sessions.
+
+Use the terminal to:
+
+- Browse collected cards
+- Search for specific cards
+- View collected variants
+- Navigate collection pages
+- Check grading status
+
+### Multiplayer Support
+
+Lethal Cards supports multiplayer and synchronizes booster packs, booster boxes, pack opening, card rewards, collection updates, grading, and related gameplay across players.
+
+**All players should have Lethal Cards installed.**
+
+---
+
+## Terminal Commands
+
+### Collection
+
+`collection`
+
+Displays your card collection.
+
+`collection next`
+
+Go to the next collection page.
+
+`collection previous`
+
+Go to the previous collection page.
+
+`collection page X`
+
+Jump directly to a collection page.
+
+Example:
+
+`collection page 3`
+
+You can also search for a specific card:
+
+`collection bracken`
+
+While browsing the collection, you can also use:
+
+- `next`
+- `prev`
+- `previous`
+
+### Grading
+
+`grading`
+
+Displays the current grading queue and status of submitted cards.
+
+`grades`
+
+Alias for `grading`.
+
+Cards progress through statuses such as:
+
+- Processing Order...
+- Assessing Grade...
+- Shipping Order...
+- Ready for pickup!
+
+Once ready, the card's grade and final value are shown.
+
+---
+
+## Configuration
+
+Lethal Cards includes configurable balance and spawn settings.
+
+Configuration files are generated through BepInEx after launching the game with the mod installed.
+
+### Scrap Spawn Weights
+
+Default v1.0.0 spawn weights:
+
+- `LightBoosterWeight = 45`
+- `HeavyBoosterWeight = 25`
+- `BoosterBoxWeight = 20`
+- `GoldenBoosterBoxWeight = 10`
+
+These are **relative spawn weights**, not direct percentages.
+
+Setting a spawn weight to `0` disables that item from naturally spawning as facility scrap.
+
+Existing configuration files may preserve values from older versions, so check your config after updating.
+
+A game restart is recommended after changing spawn settings.
+
+For multiplayer, the **host's gameplay configuration should be treated as authoritative**.
+
+### Booster Values
+
+Default booster and box values:
+
+- Light Booster Pack: **$30**
+- Heavy Booster Pack: **$50**
+- Standard Booster Box: **$75**
+- Golden Booster Box: **$150**
+
+### Grading Configuration
+
+The grading system can be configured, including settings such as:
+
+- Grading cost
+- Grading turnaround time
+- Grade probabilities
+- Grade value multipliers
+
+Default grading turnaround:
+
+**3 in-game days**
+
+Default grading cost:
+
+**$10**
+
+### Variant Odds
+
+Default card variant rates:
+
+- Standard: **69%**
+- Foil: **25%**
+- Alternate Art: **5%**
+- Misprint: **1%**
+
+### God Packs
+
+Default Heavy Booster God Pack chance:
+
+**5%**
+
+---
+
+## Installation
+
+### Recommended Installation
+
+Install Lethal Cards through:
+
+- **r2modman**
+- **Thunderstore Mod Manager**
+
+Once Lethal Cards is available on Thunderstore:
+
+1. Open r2modman or Thunderstore Mod Manager.
+2. Select Lethal Company.
+3. Create or select your profile.
+4. Search for **Lethal Cards**.
+5. Install the mod and its dependencies.
+6. Launch the game through the mod manager.
+
+### Multiplayer Installation
+
+Every player joining the lobby should have:
+
+- Lethal Cards
+- Required dependencies
+- Compatible mod versions
+
+installed.
+
+---
+
+## Dependencies
+
+Lethal Cards currently requires:
+
+- **BepInExPack 5.4.2305**
+- **LethalLib 1.2.0**
+
+Dependency information will also be listed on the Thunderstore package page.
+
+---
+
+## Planned Future Features
+
+Lethal Cards v1.0.0 is only the beginning.
+
+### V2
+
+#### Collection Display Case
+
+Add a display case to the ship where players can store and show off their favorite cards.
+
+#### Break & Re-Grade Cards
+
+Allow graded cards to be removed from their slabs and submitted for grading again with different re-grading odds.
+
+### V3
+
+#### Upgrade Shop
+
+Planned upgrades include:
+
+- Instant grading
+- Increased card values
+- Improved graded card values
+- Increased booster spawn weight
+- Improved card rarity rates inside booster packs
+
+#### Improved Item Inspection
+
+Expanded inspection controls allowing players to rotate and examine:
+
+- Cards
+- Booster Packs
+- Booster Boxes
+- Graded Cards
+
+### V4
+
+#### Play the Lethal Card Game
+
+Use the cards you've collected to actually **play a Lethal Cards card game** with other players.
+
+More information will come as development continues.
+
+---
+
+## Known Issues
+
+Known issues will be tracked through GitHub.
+
+If you encounter a problem, please include:
+
+- What happened
+- Steps to reproduce the issue
+- Whether you were the host or a client
+- Your Lethal Cards version
+- Relevant `BepInEx/LogOutput.log` files
+
+---
+
+## Bug Reports
+
+Found a bug?
+
+Please report it through GitHub Issues:
+
+[GitHub Issues](https://github.com/HTH6/LethalCards/issues)
+
+Logs are extremely helpful for multiplayer and networking problems.
+
+---
+
+## Feedback & Suggestions
+
+Have an idea for a card, feature, balance change, or future update?
+
+Feel free to leave feedback through:
+
+- [GitHub](https://github.com/HTH6/LethalCards/issues)
+- [Thunderstore](THUNDERSTORE_LINK_HERE)
+- Add me on discord and send me a message for suggestions - @hdaddyo
+
+---
+
+## Credits
+
+### Created By
+
+**hdaddyo**
+
+### Development
+
+WaterCupKing or Hdaddyo, both are me! Github is HTH6
+
+### Artwork / Assets
+
+-Eminizerbunny made all the art! Shoutout to her!
+
+### Testing
+
+Thanks to the following playtesters:
+-Peakdog
+-Bradford
+-Eminizerbunny
+-Mavericks
+And to all my friends for their support throughout the entire process.
+
+### Special Thanks
+
+Special thanks to eminizerbunny for all the card artwork, couldn't have done it without her!
+Special thanks to Peakdog for playtesting and mod support + ideas
+Special thanks to Bradford for helping so, so much throughout the process
+
+---
+
+## Version
+
+**Lethal Cards v1.0.0**
+
+Set 1 includes:
+
+- 33 Cards
+- 5 Rarity Tiers
+- 4 Variants
+- 2 Booster Pack Types
+- 2 Booster Box Types
+- Full Grading System
+- Persistent Collection Tracking
+- Multiplayer Support
+
+Thanks for playing **Lethal Cards**.
+
+**Hunt for Packs. Rip Them. Collect Cards. Grade Them.**

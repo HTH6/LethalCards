@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using GameNetcodeStuff;
 using LethalCards.Cards;
 using UnityEngine;
 
@@ -8,6 +9,12 @@ namespace LethalCards.Boosters;
 /// <summary>Local-only cosmetic presentation. Real networked cards are never moved or replaced.</summary>
 internal sealed class BoosterRevealController : MonoBehaviour
 {
+    private enum PresentationMode
+    {
+        FirstPerson,
+        ObserverWorld
+    }
+
     private const float PullDuration = 0.6f;
     private const float DisplayMoveDuration = 0.3f;
     private const float PauseBeforeFlip = 0.2f;
@@ -20,6 +27,17 @@ internal sealed class BoosterRevealController : MonoBehaviour
     private const float RevealAudioTriggerPoint = 0.60f;
     private const float RevealAudioLeadTime = 0.15f;
     private const float TearStripDuration = 0.55f;
+    private const float ObserverForwardOffset = 1.15f;
+    private const float ObserverVerticalOffset = 1.65f;
+    private const float ObserverScale = 0.65f;
+    private const float ObserverPresentationDistance = 1.15f;
+    private const float ObserverAudioMinDistance = 1.5f;
+    private const float ObserverAudioMaxDistance = 18f;
+    private const int RememberedRevealLimit = 256;
+
+    private static readonly Dictionary<ulong, BoosterRevealController> ActiveObserverReveals = new();
+    private static readonly HashSet<ulong> RememberedRevealIds = new();
+    private static readonly Queue<ulong> RememberedRevealOrder = new();
 
     private readonly List<GameObject> presentationObjects = new();
     private readonly List<Transform> cards = new();
@@ -31,18 +49,60 @@ internal sealed class BoosterRevealController : MonoBehaviour
     private AudioSource? revealAudio;
     private AudioSource? anticipationAudio;
     private bool godPack;
+    private PresentationMode presentationMode;
+    private ulong revealId;
+    private ulong openerClientId;
+    private Vector3 frozenOpeningPosition;
+    private Vector3 frozenOpeningForward;
+    private bool observerRegistered;
 
-    internal static void Begin(BoosterType type, bool isGodPack,
+    internal static void Begin(
+        ulong revealId, ulong packNetworkObjectId, ulong openerClientId, bool firstPerson,
+        PlayerControllerB? opener, Vector3 openerPosition, Vector3 openerForward,
+        BoosterType type, bool isGodPack,
         string card1, int variant1, int rarity1,
         string card2, int variant2, int rarity2,
         string card3, int variant3, int rarity3)
     {
-        GameObject host = new("LethalCardsLocalBoosterReveal");
+        if (!RememberRevealId(revealId))
+        {
+            Plugin.Log.LogWarning($"OBSERVER REVEAL BLOCKED | RevealId={revealId} | Reason=DuplicateReveal");
+            return;
+        }
+
+        PresentationMode mode = firstPerson ? PresentationMode.FirstPerson : PresentationMode.ObserverWorld;
+        GameObject host = new($"LethalCards{mode}BoosterReveal_{revealId}_Pack{packNetworkObjectId}");
         BoosterRevealController controller = host.AddComponent<BoosterRevealController>();
-        controller.Initialize(type, isGodPack,
+        controller.revealId = revealId;
+        controller.openerClientId = openerClientId;
+        controller.presentationMode = mode;
+        controller.frozenOpeningPosition = mode == PresentationMode.ObserverWorld && opener != null
+            ? opener.transform.position
+            : openerPosition;
+        controller.frozenOpeningForward = HorizontalDirection(
+            mode == PresentationMode.ObserverWorld && opener != null
+                ? opener.transform.forward
+                : openerForward);
+
+        if (!controller.Initialize(type, isGodPack,
             new[] { card1, card2, card3 },
             new[] { variant1, variant2, variant3 },
-            new[] { rarity1, rarity2, rarity3 });
+            new[] { rarity1, rarity2, rarity3 }))
+        {
+            Destroy(host);
+            return;
+        }
+
+        if (mode == PresentationMode.ObserverWorld)
+        {
+            ActiveObserverReveals[revealId] = controller;
+            controller.observerRegistered = true;
+            Plugin.Log.LogInfo(
+                $"OBSERVER REVEAL START | RevealId={revealId} | OpenerClientId={openerClientId} | " +
+                $"FrozenPosition={controller.transform.position} | FrozenForward={controller.frozenOpeningForward} | " +
+                $"FrozenRotation={controller.transform.rotation.eulerAngles} | ObserverScale={ObserverScale:F2} | " +
+                $"ActiveObserverReveals={ActiveObserverReveals.Count}");
+        }
     }
 
     internal static float CalculateRevealDuration(CardRarity rarity1, CardRarity rarity2, CardRarity rarity3)
@@ -73,18 +133,26 @@ internal sealed class BoosterRevealController : MonoBehaviour
         return buildUp + pull + DisplayMoveDuration + pause + flip + RevealHoldDuration;
     }
 
-    private void Initialize(BoosterType type, bool isGodPack, string[] cardIds, int[] variants, int[] rarityValues)
+    private bool Initialize(BoosterType type, bool isGodPack, string[] cardIds, int[] variants, int[] rarityValues)
     {
-        Camera presentationCamera = Camera.main;
-        if (presentationCamera == null)
+        Camera? presentationCamera = Camera.main;
+        if (presentationMode == PresentationMode.FirstPerson && presentationCamera == null)
         {
             Plugin.Log.LogWarning("BOOSTER REVEAL SKIPPED | No local presentation camera");
-            Destroy(gameObject);
-            return;
+            return false;
         }
 
-        transform.position = presentationCamera.transform.position;
-        transform.rotation = presentationCamera.transform.rotation;
+        if (presentationMode == PresentationMode.FirstPerson)
+        {
+            transform.position = presentationCamera!.transform.position;
+            transform.rotation = presentationCamera.transform.rotation;
+            transform.localScale = Vector3.one;
+        }
+        else
+        {
+            InitializeObserverTransform();
+        }
+
         godPack = isGodPack;
         CreateAudioSources();
         CreateEffects();
@@ -97,6 +165,7 @@ internal sealed class BoosterRevealController : MonoBehaviour
                 continue;
             GameObject clone = CreateVisualOnlyClone(definition.ItemAsset.spawnPrefab,
                 $"LethalCardsReveal_{definition.DisplayName}");
+            clone.transform.SetParent(transform, false);
             CardVariantVisuals visuals = clone.AddComponent<CardVariantVisuals>();
             visuals.ApplyVariant((CardVariant)variants[i]);
             clone.SetActive(false);
@@ -108,32 +177,56 @@ internal sealed class BoosterRevealController : MonoBehaviour
         if (cards.Count != 3)
         {
             Plugin.Log.LogWarning($"BOOSTER REVEAL SKIPPED | ResolvedCards={cards.Count}/3");
-            Destroy(gameObject);
-            return;
+            return false;
         }
         StartCoroutine(RevealPack());
+        return true;
     }
 
     private void CreateAudioSources()
     {
-        revealAudio = gameObject.AddComponent<AudioSource>();
-        revealAudio.spatialBlend = 0f;
-        anticipationAudio = gameObject.AddComponent<AudioSource>();
-        anticipationAudio.spatialBlend = 0f;
+        GameObject audioHost = gameObject;
+        if (presentationMode == PresentationMode.ObserverWorld)
+        {
+            audioHost = new GameObject("ObserverRevealAudio");
+            audioHost.transform.SetParent(transform, false);
+            audioHost.transform.localPosition = new Vector3(0f, 0f, ObserverPresentationDistance);
+        }
+
+        revealAudio = audioHost.AddComponent<AudioSource>();
+        anticipationAudio = audioHost.AddComponent<AudioSource>();
+        ConfigureAudioSource(revealAudio);
+        ConfigureAudioSource(anticipationAudio);
+    }
+
+    private void ConfigureAudioSource(AudioSource source)
+    {
+        if (presentationMode == PresentationMode.FirstPerson)
+        {
+            source.spatialBlend = 0f;
+            return;
+        }
+
+        source.spatialBlend = 1f;
+        source.minDistance = ObserverAudioMinDistance;
+        source.maxDistance = ObserverAudioMaxDistance;
+        source.rolloffMode = AudioRolloffMode.Logarithmic;
+        source.dopplerLevel = 0f;
     }
 
     private void CreateEffects()
     {
         if (BoosterRevealAssets.RevealFxPrefab == null) return;
-        fxRoot = Instantiate(BoosterRevealAssets.RevealFxPrefab);
+        fxRoot = Instantiate(BoosterRevealAssets.RevealFxPrefab, transform, false);
         fxRoot.name = "LethalCardsLocalRevealFX";
-        fxRoot.transform.SetParent(transform, true);
-        fxRoot.transform.position = ViewPoint(0f, 0f, 1.15f);
-        fxRoot.transform.rotation = transform.rotation;
+        fxRoot.transform.localPosition = new Vector3(0f, 0f, 1.15f);
+        fxRoot.transform.localRotation = Quaternion.identity;
         presentationObjects.Add(fxRoot);
+        foreach (AudioSource source in fxRoot.GetComponentsInChildren<AudioSource>(true))
+            ConfigureAudioSource(source);
         foreach (ParticleSystem particles in fxRoot.GetComponentsInChildren<ParticleSystem>(true))
             particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        foreach (string expected in new[] { "HitSparkles", "UltraRevealBurst", "SecretRevealBurst",
+        foreach (string expected in new[] { "HitSparkles", "RainbowHitSparkles", "UltraRevealBurst", "SecretRevealBurst",
                      "SecretRainbowRing", "UltraRevealFlash", "SecretRevealFlash", "UltraRevealGlow", "SecretRevealGlow" })
             if (FindParticles(expected) == null)
                 Plugin.Log.LogWarning($"REVEAL FX CHILD MISSING | Name={expected}");
@@ -146,8 +239,9 @@ internal sealed class BoosterRevealController : MonoBehaviour
         GameObject clone = CreateVisualOnlyClone(item.spawnPrefab, "LethalCardsLocalRevealPack");
         presentationObjects.Add(clone);
         pack = clone.transform;
-        pack.position = ViewPoint(0f, -0.42f, 1.05f);
-        pack.rotation = transform.rotation;
+        pack.SetParent(transform, false);
+        pack.localPosition = new Vector3(0f, -0.42f, 1.05f);
+        pack.localRotation = Quaternion.identity;
         ResolveTearStrip();
     }
 
@@ -201,10 +295,10 @@ internal sealed class BoosterRevealController : MonoBehaviour
         yield return AnimateTearStrip();
 
         yield return RevealCard(0, false);
-        yield return Move(cards[0], cards[0].position, ViewPoint(-0.34f, 0f, 1.15f), MoveAsideDuration);
+        yield return MoveLocal(cards[0], cards[0].localPosition, new Vector3(-0.34f, 0f, 1.15f), MoveAsideDuration);
         yield return new WaitForSeconds(BetweenCardsDelay);
         yield return RevealCard(1, false);
-        yield return Move(cards[1], cards[1].position, ViewPoint(0.34f, 0f, 1.15f), MoveAsideDuration);
+        yield return MoveLocal(cards[1], cards[1].localPosition, new Vector3(0.34f, 0f, 1.15f), MoveAsideDuration);
         yield return new WaitForSeconds(BetweenCardsDelay);
         yield return RevealCard(2, true);
         Destroy(gameObject);
@@ -228,15 +322,15 @@ internal sealed class BoosterRevealController : MonoBehaviour
             flip = secret ? 0.7f : 0.5f;
         }
 
-        Vector3 start = ViewPoint(0f, -0.42f, 1.05f);
+        Vector3 start = new(0f, -0.42f, 1.05f);
         card.gameObject.SetActive(true);
-        card.position = start;
-        card.rotation = transform.rotation * Quaternion.Euler(0f, 180f, 0f);
-        yield return Move(card, start, ViewPoint(0f, 0.12f, 1.15f), pull);
-        yield return Move(card, card.position, ViewPoint(0f, 0f, 1.15f), DisplayMoveDuration);
+        card.localPosition = start;
+        card.localRotation = Quaternion.Euler(0f, 180f, 0f);
+        yield return MoveLocal(card, start, new Vector3(0f, 0.12f, 1.15f), pull);
+        yield return MoveLocal(card, card.localPosition, new Vector3(0f, 0f, 1.15f), DisplayMoveDuration);
         yield return new WaitForSeconds(pause);
         StartCoroutine(PlayRevealAudioDuringFlip(rarity, flip));
-        yield return Flip(card, flip);
+        yield return FlipLocal(card, flip);
         PlayImpact(rarity);
         if (ultra || secret) StartCoroutine(ScalePunch(card, secret ? 1.12f : 1.08f));
         yield return new WaitForSeconds(RevealHoldDuration);
@@ -247,12 +341,13 @@ internal sealed class BoosterRevealController : MonoBehaviour
         bool secret = rarity == CardRarity.SecretRare;
         float duration = BigHitBuildUpDuration * (secret ? 1.35f : 1f) * (finalCard ? 1.15f : 1f);
         float strength = (secret ? 0.005f : 0.0025f) * (finalCard ? 1.15f : 1f);
-        ParticleSystem? sparkles = FindParticles("HitSparkles");
+        ParticleSystem? sparkles = FindParticles(
+            secret ? "RainbowHitSparkles" : "HitSparkles");
         if (sparkles != null)
         {
             sparkles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var emission = sparkles.emission;
-            emission.rateOverTime = 60f * (finalCard ? 1.15f : 1f);
+            emission.rateOverTime = (secret ? 200f : 150f) * (finalCard ? 1.15f : 1f);
             sparkles.Play();
         }
         StartAnticipation(secret ? BoosterRevealAssets.SecretAnticipation : BoosterRevealAssets.UltraAnticipation, duration);
@@ -331,9 +426,6 @@ internal sealed class BoosterRevealController : MonoBehaviour
         if (revealAudio != null && clip != null) revealAudio.PlayOneShot(clip, volume);
     }
 
-    private Vector3 ViewPoint(float x, float y, float distance) =>
-        transform.TransformPoint(new Vector3(x, y, distance));
-
     private static Transform? FindChild(Transform root, string childName)
     {
         foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
@@ -348,15 +440,11 @@ internal sealed class BoosterRevealController : MonoBehaviour
             yield break;
 
         tearStrip.gameObject.SetActive(true);
-        Vector3 pivotWorldStartPosition = tearStripPivot.position;
-        Quaternion pivotWorldStartRotation = tearStripPivot.rotation;
         tearStripPivot.SetParent(transform, true);
-        tearStripPivot.position = pivotWorldStartPosition;
-        tearStripPivot.rotation = pivotWorldStartRotation;
 
         Quaternion pivotStartRotation = tearStripPivot.localRotation;
         Quaternion pivotPeeledRotation = pivotStartRotation * Quaternion.Euler(-65f, 0f, 0f);
-        Vector3 pivotStartPosition = tearStripPivot.position;
+        Vector3 pivotStartPosition = tearStripPivot.localPosition;
         float peelDuration = TearStripDuration * 0.38f;
         float flingDuration = TearStripDuration - peelDuration;
 
@@ -370,49 +458,49 @@ internal sealed class BoosterRevealController : MonoBehaviour
         }
 
         tearStripPivot.localRotation = pivotPeeledRotation;
-        Vector3 flingStartPosition = tearStripPivot.position;
+        Vector3 flingStartPosition = tearStripPivot.localPosition;
         Quaternion flingStartRotation = tearStripPivot.localRotation;
-        Vector3 flingEndPosition = pivotStartPosition + transform.TransformVector(new Vector3(-0.85f, 0.55f, 0.12f));
+        Vector3 flingEndPosition = pivotStartPosition + new Vector3(-0.85f, 0.55f, 0.12f);
         Quaternion flingEndRotation = pivotPeeledRotation * Quaternion.Euler(-25f, 0f, 120f);
         elapsed = 0f;
         while (elapsed < flingDuration)
         {
             float t = Mathf.SmoothStep(0f, 1f, elapsed / flingDuration);
-            tearStripPivot.position = Vector3.Lerp(flingStartPosition, flingEndPosition, t);
+            tearStripPivot.localPosition = Vector3.Lerp(flingStartPosition, flingEndPosition, t);
             tearStripPivot.localRotation = Quaternion.Slerp(flingStartRotation, flingEndRotation, t);
             elapsed += Time.deltaTime;
             yield return null;
         }
 
-        tearStripPivot.position = flingEndPosition;
+        tearStripPivot.localPosition = flingEndPosition;
         tearStripPivot.localRotation = flingEndRotation;
         tearStripPivot.gameObject.SetActive(false);
     }
 
-    private static IEnumerator Move(Transform target, Vector3 start, Vector3 end, float duration)
+    private static IEnumerator MoveLocal(Transform target, Vector3 start, Vector3 end, float duration)
     {
         float elapsed = 0f;
         while (elapsed < duration)
         {
-            target.position = Vector3.Lerp(start, end, Mathf.SmoothStep(0f, 1f, elapsed / duration));
+            target.localPosition = Vector3.Lerp(start, end, Mathf.SmoothStep(0f, 1f, elapsed / duration));
             elapsed += Time.deltaTime;
             yield return null;
         }
-        target.position = end;
+        target.localPosition = end;
     }
 
-    private static IEnumerator Flip(Transform target, float duration)
+    private static IEnumerator FlipLocal(Transform target, float duration)
     {
-        Quaternion start = target.rotation;
+        Quaternion start = target.localRotation;
         Quaternion end = start * Quaternion.Euler(0f, 180f, 0f);
         float elapsed = 0f;
         while (elapsed < duration)
         {
-            target.rotation = Quaternion.Slerp(start, end, Mathf.SmoothStep(0f, 1f, elapsed / duration));
+            target.localRotation = Quaternion.Slerp(start, end, Mathf.SmoothStep(0f, 1f, elapsed / duration));
             elapsed += Time.deltaTime;
             yield return null;
         }
-        target.rotation = end;
+        target.localRotation = end;
     }
 
     private static IEnumerator ScalePunch(Transform target, float multiplier)
@@ -437,6 +525,37 @@ internal sealed class BoosterRevealController : MonoBehaviour
         target.localScale = end;
     }
 
+    private void InitializeObserverTransform()
+    {
+        Vector3 revealCenter = frozenOpeningPosition +
+            frozenOpeningForward * ObserverForwardOffset +
+            Vector3.up * ObserverVerticalOffset;
+
+        // Match the first-person hierarchy: the root points along the opener's view
+        // direction, so a revealed card at local identity faces back toward the opener.
+        transform.position = revealCenter -
+            frozenOpeningForward * (ObserverPresentationDistance * ObserverScale);
+        transform.rotation = Quaternion.LookRotation(frozenOpeningForward, Vector3.up);
+        transform.localScale = Vector3.one * ObserverScale;
+    }
+
+    private static Vector3 HorizontalDirection(Vector3 direction)
+    {
+        direction.y = 0f;
+        return direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward;
+    }
+
+    private static bool RememberRevealId(ulong id)
+    {
+        if (!RememberedRevealIds.Add(id))
+            return false;
+
+        RememberedRevealOrder.Enqueue(id);
+        while (RememberedRevealOrder.Count > RememberedRevealLimit)
+            RememberedRevealIds.Remove(RememberedRevealOrder.Dequeue());
+        return true;
+    }
+
     private void OnDestroy()
     {
         StopAllCoroutines();
@@ -448,5 +567,15 @@ internal sealed class BoosterRevealController : MonoBehaviour
         foreach (GameObject obj in presentationObjects)
             if (obj != null) Destroy(obj);
         presentationObjects.Clear();
+
+        if (observerRegistered)
+        {
+            if (ActiveObserverReveals.TryGetValue(revealId, out BoosterRevealController? active) && active == this)
+                ActiveObserverReveals.Remove(revealId);
+            observerRegistered = false;
+            Plugin.Log.LogInfo(
+                $"OBSERVER REVEAL COMPLETE | RevealId={revealId} | OpenerClientId={openerClientId} | " +
+                $"RemainingObserverReveals={ActiveObserverReveals.Count}");
+        }
     }
 }

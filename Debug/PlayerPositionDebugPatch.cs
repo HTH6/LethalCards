@@ -37,11 +37,11 @@ public static class PlayerPositionDebugPatch
             Vector3 forward =
                 __instance.transform.forward;
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"PLAYER POSITION MARKER | " +
                 $"Position=({position.x:F2}, {position.y:F2}, {position.z:F2}) | " +
                 $"Forward=({forward.x:F2}, {forward.y:F2}, {forward.z:F2})"
-            );
+            ); */
         }
     }
 }

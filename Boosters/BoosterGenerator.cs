@@ -232,10 +232,10 @@ public static class BoosterGenerator
     {
         CardVariant variant = BalanceConfig.Variants.Roll(Random);
 
-        Plugin.Log.LogInfo(
+        /* Plugin.Log.LogInfo(
             $"VARIANT ROLL | " +
             $"Result={variant}"
-        );
+        ); */
 
         return variant;
     }

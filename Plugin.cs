@@ -2,6 +2,7 @@
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Configuration;
+using System.Collections.Generic;
 using LethalLib.Modules;
 using UnityEngine;
 using LethalCards.Cards;
@@ -22,6 +23,20 @@ public class Plugin : BaseUnityPlugin
     public const string PluginGuid = "Hdaddy.LethalCards";
     public const string PluginName = "Lethal Cards";
     public const string PluginVersion = "0.1.3";
+
+    /* private static readonly Vector3 CardHeldPositionCorrection =
+        new(0.1f, 0.05f, -0.1f); */
+
+    private static readonly Vector3 CardHeldPositionCorrection =
+        new(0.1f, 0.08f, -0.08f);
+    private static readonly Vector3 BoosterPackHeldPositionCorrection =
+        new(0.1f, 0.08f, -0.08f);
+    private static readonly Vector3 BoosterBoxHeldPositionCorrection =
+        new(0.1f, 0.1f, -0.1f);
+    private static readonly HashSet<Item> HeldPositionAdjustedItems = new();
+    private const float CardFloorVerticalOffset = 0.03f;
+    private const float BoosterPackFloorVerticalOffset = 0.06f;
+    private const float BoosterBoxFloorVerticalOffset = 0.15f;
 
     internal static ManualLogSource Log = null!;
 
@@ -99,6 +114,8 @@ public class Plugin : BaseUnityPlugin
         );
 
         BoosterRevealAssets.Load(bundle);
+        GradingPedestalSpawner.LoadAssets(bundle);
+        GradedCardSlabPresentation.LoadAssets(bundle);
 
         // ========================================================
         // CARD REGISTRATION
@@ -289,19 +306,19 @@ public class Plugin : BaseUnityPlugin
             instanceData =
                 prefab.AddComponent<CardInstanceData>();
 
-            Log.LogInfo(
+            /* Log.LogInfo(
                 $"CARD PREFAB PREPARED | " +
                 $"Prefab={prefab.name} | " +
                 $"Added CardInstanceData=True"
-            );
+            ); */
         }
         else
         {
-            Log.LogInfo(
+            /* Log.LogInfo(
                 $"CARD PREFAB PREPARED | " +
                 $"Prefab={prefab.name} | " +
                 $"CardInstanceData already present"
-            );
+            ); */
         }
     }
     private void RegisterCard(AssetBundle bundle, CardDefinition card)
@@ -316,12 +333,15 @@ public class Plugin : BaseUnityPlugin
         }
 
         PrepareCardPrefab(item.spawnPrefab);
+        item.verticalOffset = CardFloorVerticalOffset;
+        // Log.LogInfo($"FLOOR OFFSET CONFIG | Type=Card | VerticalOffset={item.verticalOffset}");
+        ApplyHeldPositionCorrection(item, CardHeldPositionCorrection, "Card");
         item.saveItemVariable = true;
         item.canBeInspected = true;
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(item.spawnPrefab);
         Items.RegisterItem(item); // Cards are pack contents, not natural map scrap.
         card.AttachImplementedItem(item);
-        Log.LogInfo($"CARD ENABLED | Id={card.CardId} | SetNumber={card.SetNumber:D3} | Name={card.DisplayName} | Rarity={card.Rarity} | BaseValue={card.BaseScrapValue} | CanBeInspected={item.canBeInspected}");
+        // Log.LogInfo($"CARD ENABLED | Id={card.CardId} | SetNumber={card.SetNumber:D3} | Name={card.DisplayName} | Rarity={card.Rarity} | BaseValue={card.BaseScrapValue} | CanBeInspected={item.canBeInspected}");
     }
 //     private void RegisterCard(
 //         AssetBundle bundle,
@@ -509,6 +529,10 @@ public class Plugin : BaseUnityPlugin
             return null;
         }
         SetFixedScrapValue(item, BalanceConfig.GetBoosterBoxValue(type));
+        item.verticalOffset = BoosterBoxFloorVerticalOffset;
+        // Log.LogInfo($"FLOOR OFFSET CONFIG | Type={(type == BoosterBoxType.Golden ? "GoldenBox" : "StandardBox")} | VerticalOffset={item.verticalOffset}");
+        string boxTypeLabel = type == BoosterBoxType.Golden ? "GoldenBox" : "StandardBox";
+        ApplyHeldPositionCorrection(item, BoosterBoxHeldPositionCorrection, boxTypeLabel);
         PhysicsProp original = item.spawnPrefab.GetComponent<PhysicsProp>();
         if (original == null)
         {
@@ -524,17 +548,22 @@ public class Plugin : BaseUnityPlugin
         box.isInFactory = original.isInFactory;
         box.mainObjectRenderer = original.mainObjectRenderer;
         box.BoxType = type;
+        if (box.itemProperties != null && box.itemProperties != item)
+        {
+            box.itemProperties.verticalOffset = BoosterBoxFloorVerticalOffset;
+            ApplyHeldPositionCorrection(box.itemProperties, BoosterBoxHeldPositionCorrection, boxTypeLabel);
+        }
         bool tooltipCorrected = EnsureActionTooltip(item, "Open Box");
         if (box.itemProperties != item)
             tooltipCorrected |= EnsureActionTooltip(box.itemProperties, "Open Box");
-        Log.LogInfo($"BOOSTER BOX TOOLTIP | Type={type} | Display=\"{box.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
+        // Log.LogInfo($"BOOSTER BOX TOOLTIP | Type={type} | Display=\"{box.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
         item.saveItemVariable = true; // Persist failed-opening lock; never changes Item.weight.
         Object.DestroyImmediate(original);
-        Log.LogInfo($"BOOSTER BOX BEHAVIOUR ATTACHED | Type={type} | Prefab={item.spawnPrefab.name} | " +
+        /* Log.LogInfo($"BOOSTER BOX BEHAVIOUR ATTACHED | Type={type} | Prefab={item.spawnPrefab.name} | " +
             $"ComponentType={box.GetType().FullName} | ItemProperties={box.itemProperties?.name} | Grabbable={box.grabbable} | " +
             $"GrabbableComponents={item.spawnPrefab.GetComponents<GrabbableObject>().Length} | " +
             $"ActivationComponent={item.spawnPrefab.GetComponent<GrabbableObject>()?.GetType().FullName} | " +
-            $"MainObjectRenderer={box.mainObjectRenderer?.name} | UseCooldown={box.useCooldown}");
+            $"MainObjectRenderer={box.mainObjectRenderer?.name} | UseCooldown={box.useCooldown}"); */
         if (item.spawnPrefab.GetComponent<NetworkItemConsumption>() == null)
             item.spawnPrefab.AddComponent<NetworkItemConsumption>();
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(item.spawnPrefab);
@@ -575,8 +604,12 @@ public class Plugin : BaseUnityPlugin
         }
 
         SetFixedScrapValue(item, BalanceConfig.GetBoosterValue(packType));
+        item.verticalOffset = BoosterPackFloorVerticalOffset;
+        // Log.LogInfo($"FLOOR OFFSET CONFIG | Type={(packType == BoosterType.Heavy ? "HeavyPack" : "LightPack")} | VerticalOffset={item.verticalOffset}");
+        string packTypeLabel = packType == BoosterType.Heavy ? "HeavyPack" : "LightPack";
+        ApplyHeldPositionCorrection(item, BoosterPackHeldPositionCorrection, packTypeLabel);
 
-        Log.LogInfo(
+        /* Log.LogInfo(
             $"BOOSTER DATA | " +
             $"Asset={assetName} | " +
             $"ItemName={item.itemName} | " +
@@ -585,7 +618,7 @@ public class Plugin : BaseUnityPlugin
             $"MinValue={item.minValue} | " +
             $"MaxValue={item.maxValue} | " +
             $"Weight={item.weight}"
-        );
+        ); */
 
         PhysicsProp oldPhysicsProp =
             item.spawnPrefab.GetComponent<PhysicsProp>();
@@ -618,10 +651,16 @@ public class Plugin : BaseUnityPlugin
         boosterBehaviour.PackType =
             packType;
 
+        if (boosterBehaviour.itemProperties != null && boosterBehaviour.itemProperties != item)
+        {
+            boosterBehaviour.itemProperties.verticalOffset = BoosterPackFloorVerticalOffset;
+            ApplyHeldPositionCorrection(boosterBehaviour.itemProperties, BoosterPackHeldPositionCorrection, packTypeLabel);
+        }
+
         bool tooltipCorrected = EnsureActionTooltip(item, "Rip Pack");
         if (boosterBehaviour.itemProperties != item)
             tooltipCorrected |= EnsureActionTooltip(boosterBehaviour.itemProperties, "Rip Pack");
-        Log.LogInfo($"BOOSTER TOOLTIP | Type={packType} | Display=\"{boosterBehaviour.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
+        // Log.LogInfo($"BOOSTER TOOLTIP | Type={packType} | Display=\"{boosterBehaviour.itemProperties?.toolTips?[0]}\" | Corrected={tooltipCorrected}");
 
         Object.DestroyImmediate(
             oldPhysicsProp
@@ -635,7 +674,7 @@ public class Plugin : BaseUnityPlugin
             $"BoosterPackBehaviour for {packType} pack."
         );
 
-        BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, packType, "BOOSTER PREPARED PREFAB");
+        // BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, packType, "BOOSTER PREPARED PREFAB");
 
         LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(
             item.spawnPrefab
@@ -674,5 +713,20 @@ public class Plugin : BaseUnityPlugin
         int safeValue = System.Math.Max(0, value);
         item.minValue = safeValue;
         item.maxValue = safeValue;
+    }
+
+    private static void ApplyHeldPositionCorrection(
+        Item item,
+        Vector3 correction,
+        string type)
+    {
+        if (!HeldPositionAdjustedItems.Add(item))
+            return;
+
+        Vector3 baseOffset = item.positionOffset;
+        item.positionOffset += correction;
+        // Log.LogInfo(
+        //     $"HELD OFFSET CONFIG | Type={type} | BaseOffset={baseOffset} | " +
+        //     $"Correction={correction} | FinalOffset={item.positionOffset}");
     }
 }

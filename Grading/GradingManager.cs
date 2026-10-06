@@ -12,18 +12,9 @@ public static class GradingManager
     // TEMPORARY TEST SETTINGS
     // ============================================================
 
-    /* Retained test overrides; normal gameplay uses the logic below.
-    public const bool InstantGradingForTesting = true;
-    public const bool FreeGradingForTesting = true;
-    public const bool FixedGradeForTesting = true;
+    // Temporary test override; normal gameplay should set this to false.
+    public static readonly bool InstantGradingForTesting = false;
 
-    public const int TestGrade = 10;
-
-    public const int GradingCostPerCard =
-        FreeGradingForTesting
-            ? 0
-            : 10;
-    */
     public static int GradingCostPerCard => BalanceConfig.GradingCost;
 
     // ============================================================
@@ -38,9 +29,7 @@ public static class GradingManager
         CardInstanceData card,
         int currentDay)
     {
-        int grade =
-            // FixedGradeForTesting ? TestGrade : CardGrading.RollGrade();
-            CardGrading.RollGrade();
+        int grade = CardGrading.RollGrade();
 
         GradingJob job =
             new GradingJob
@@ -53,9 +42,9 @@ public static class GradingManager
                 Variant = card.Variant,
                 Grade = grade,
                 SubmittedDay = currentDay,
-                ReadyDay =
-                // InstantGradingForTesting ? currentDay : currentDay + GradingTurnaroundDays
-                currentDay + GradingTurnaroundDays
+                ReadyDay = InstantGradingForTesting
+                    ? currentDay
+                    : currentDay + GradingTurnaroundDays
             };
 
         job.EnsureFinalValue();

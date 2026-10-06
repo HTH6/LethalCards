@@ -29,14 +29,14 @@ public class CardPull
                     VariantMultiplier
                 );
 
-            Plugin.Log.LogInfo(
+            /* Plugin.Log.LogInfo(
                 $"CARD VALUE CALC | " +
                 $"Card={Card.DisplayName} | " +
                 $"Base=${Card.BaseScrapValue} | " +
                 $"Variant={Variant} | " +
                 $"Multiplier={VariantMultiplier}x | " +
                 $"Final=${calculatedValue}"
-            );
+            ); */
 
             return calculatedValue;
         }
