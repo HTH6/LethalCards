@@ -1,7 +1,20 @@
-# Generated build output can contain machine paths and private metadata.
+# .NET
 bin/
 obj/
+
+# Build/package output
+release/
 *.zip
-*.pdb
+
+# Visual Studio / VS Code
 .vs/
-.idea/
+.vscode/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
