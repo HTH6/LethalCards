@@ -4,7 +4,7 @@
   <img src="https://raw.githubusercontent.com/HTH6/LethalCards/main/images/LethalCardsBanner.png" width="800">
 </p>
 
-[YouTube Trailer / Showcase](YOUTUBE_LINK_HERE)
+[YouTube Trailer / Showcase](https://youtu.be/Ap0-935wEuE)
 
 **Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
 
@@ -20,7 +20,7 @@ Have suggestions? Add me on discord: @Hdaddyo
 
 Lethal Cards is designed for multiplayer, and **all players in the lobby should have Lethal Cards installed** for everything to function correctly.
 
-- [Thunderstore](THUNDERSTORE_LINK_HERE)
+- [Thunderstore](https://thunderstore.io/c/lethal-company/p/WaterCupKing/LethalCards/)
 - [GitHub](https://github.com/HTH6/LethalCards/)
 
 ---
@@ -375,7 +375,7 @@ Have an idea for a card, feature, balance change, or future update?
 Feel free to leave feedback through:
 
 - [GitHub](https://github.com/HTH6/LethalCards/issues)
-- [Thunderstore](THUNDERSTORE_LINK_HERE)
+- [Thunderstore](https://thunderstore.io/c/lethal-company/p/WaterCupKing/LethalCards/)
 - Add me on discord and send me a message for suggestions - @hdaddyo
 
 ---
