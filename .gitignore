@@ -2,6 +2,10 @@
 bin/
 obj/
 
+# AI Agent MD files
+AGENTS.md
+MULTIPLAYER_TESTING.md
+
 # Build/package output
 release/
 *.zip
