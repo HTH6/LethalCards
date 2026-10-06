@@ -428,4 +428,8 @@ Set 1 includes:
 
 Thanks for playing **Lethal Cards**.
 
+## License
+
+Lethal Cards is licensed under the [MIT License](LICENSE).
+
 **Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
