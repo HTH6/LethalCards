@@ -54,11 +54,17 @@ internal sealed class BoosterRevealController : MonoBehaviour
     private ulong openerClientId;
     private Vector3 frozenOpeningPosition;
     private Vector3 frozenOpeningForward;
+    private Vector3 frozenOpeningUp = Vector3.up;
+    private Transform? shipAnchorTransform;
+    private bool revealIsShipAnchored;
+    private Vector3 shipLocalAnchor;
+    private Quaternion shipLocalRotation;
     private bool observerRegistered;
 
     internal static void Begin(
         ulong revealId, ulong packNetworkObjectId, ulong openerClientId, bool firstPerson,
         PlayerControllerB? opener, Vector3 openerPosition, Vector3 openerForward,
+        bool shipAnchored, Vector3 shipLocalOpeningPosition, Quaternion shipLocalOpeningRotation,
         BoosterType type, bool isGodPack,
         string card1, int variant1, int rarity1,
         string card2, int variant2, int rarity2,
@@ -76,18 +82,33 @@ internal sealed class BoosterRevealController : MonoBehaviour
         controller.revealId = revealId;
         controller.openerClientId = openerClientId;
         controller.presentationMode = mode;
-        controller.frozenOpeningPosition = mode == PresentationMode.ObserverWorld && opener != null
-            ? opener.transform.position
-            : openerPosition;
-        controller.frozenOpeningForward = HorizontalDirection(
-            mode == PresentationMode.ObserverWorld && opener != null
-                ? opener.transform.forward
-                : openerForward);
+
+        Transform? elevatorTransform = shipAnchored
+            ? StartOfRound.Instance?.elevatorTransform
+            : null;
+        if (mode == PresentationMode.ObserverWorld && elevatorTransform != null)
+        {
+            Quaternion openingRotation = elevatorTransform.rotation * shipLocalOpeningRotation;
+            controller.frozenOpeningPosition = elevatorTransform.TransformPoint(shipLocalOpeningPosition);
+            controller.frozenOpeningForward = openingRotation * Vector3.forward;
+            controller.frozenOpeningUp = openingRotation * Vector3.up;
+        }
+        else
+        {
+            controller.frozenOpeningPosition = mode == PresentationMode.ObserverWorld && opener != null
+                ? opener.transform.position
+                : openerPosition;
+            controller.frozenOpeningForward = HorizontalDirection(
+                mode == PresentationMode.ObserverWorld && opener != null
+                    ? opener.transform.forward
+                    : openerForward);
+        }
 
         if (!controller.Initialize(type, isGodPack,
             new[] { card1, card2, card3 },
             new[] { variant1, variant2, variant3 },
-            new[] { rarity1, rarity2, rarity3 }))
+            new[] { rarity1, rarity2, rarity3 },
+            shipAnchored))
         {
             Destroy(host);
             return;
@@ -133,7 +154,9 @@ internal sealed class BoosterRevealController : MonoBehaviour
         return buildUp + pull + DisplayMoveDuration + pause + flip + RevealHoldDuration;
     }
 
-    private bool Initialize(BoosterType type, bool isGodPack, string[] cardIds, int[] variants, int[] rarityValues)
+    private bool Initialize(
+        BoosterType type, bool isGodPack, string[] cardIds, int[] variants, int[] rarityValues,
+        bool shipAnchored)
     {
         Camera? presentationCamera = Camera.main;
         if (presentationMode == PresentationMode.FirstPerson && presentationCamera == null)
@@ -179,8 +202,41 @@ internal sealed class BoosterRevealController : MonoBehaviour
             Plugin.Log.LogWarning($"BOOSTER REVEAL SKIPPED | ResolvedCards={cards.Count}/3");
             return false;
         }
+
+        ConfigureShipAnchor(shipAnchored);
         StartCoroutine(RevealPack());
         return true;
+    }
+
+    private void ConfigureShipAnchor(bool shipAnchored)
+    {
+        Vector3 worldStart = transform.position;
+        Transform? elevatorTransform = shipAnchored
+            ? StartOfRound.Instance?.elevatorTransform
+            : null;
+
+        revealIsShipAnchored = elevatorTransform != null;
+        if (elevatorTransform != null)
+        {
+            shipAnchorTransform = elevatorTransform;
+            shipLocalAnchor = elevatorTransform.InverseTransformPoint(worldStart);
+            shipLocalRotation = Quaternion.Inverse(elevatorTransform.rotation) * transform.rotation;
+        }
+
+        Plugin.Log.LogInfo(
+            $"BOOSTER REVEAL ANCHOR | RevealId={revealId} | Mode={presentationMode} | " +
+            $"ShipAnchored={revealIsShipAnchored} | WorldStart={worldStart} | " +
+            $"ShipLocalAnchor={(revealIsShipAnchored ? shipLocalAnchor.ToString() : "N/A")} | " +
+            $"ShipLocalRotation={(revealIsShipAnchored ? shipLocalRotation.ToString() : "N/A")}");
+    }
+
+    private void LateUpdate()
+    {
+        if (!revealIsShipAnchored || shipAnchorTransform == null)
+            return;
+
+        transform.position = shipAnchorTransform.TransformPoint(shipLocalAnchor);
+        transform.rotation = shipAnchorTransform.rotation * shipLocalRotation;
     }
 
     private void CreateAudioSources()
@@ -529,13 +585,13 @@ internal sealed class BoosterRevealController : MonoBehaviour
     {
         Vector3 revealCenter = frozenOpeningPosition +
             frozenOpeningForward * ObserverForwardOffset +
-            Vector3.up * ObserverVerticalOffset;
+            frozenOpeningUp * ObserverVerticalOffset;
 
         // Match the first-person hierarchy: the root points along the opener's view
         // direction, so a revealed card at local identity faces back toward the opener.
         transform.position = revealCenter -
             frozenOpeningForward * (ObserverPresentationDistance * ObserverScale);
-        transform.rotation = Quaternion.LookRotation(frozenOpeningForward, Vector3.up);
+        transform.rotation = Quaternion.LookRotation(frozenOpeningForward, frozenOpeningUp);
         transform.localScale = Vector3.one * ObserverScale;
     }
 

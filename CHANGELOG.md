@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Added AI Disclosure
+- Fixed spawned booster packs / cards flying away while ship is in motion
+- Fixed opening animation "flying away" while ship is in motion
+
 ## 1.0.1
 
 - Added YouTube trailer/showcase link.

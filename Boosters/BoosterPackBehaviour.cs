@@ -12,6 +12,12 @@ public class BoosterPackBehaviour : PhysicsProp
 
     // Server-authoritative state.
     private bool opened;
+    private readonly NetworkVariable<bool> networkBoxSpawnedInShip = new(false);
+    private readonly NetworkVariable<Vector3> networkBoxShipLocalPosition = new();
+    private readonly NetworkVariable<Quaternion> networkBoxShipLocalRotation = new();
+    private bool hasPendingBoxShipPlacement;
+    private Vector3 pendingBoxShipLocalPosition;
+    private Quaternion pendingBoxShipLocalRotation;
 
     // Server-side diagnostic metadata; natural spawns retain the default false value.
     internal bool SpawnedFromBox { get; set; }
@@ -21,6 +27,95 @@ public class BoosterPackBehaviour : PhysicsProp
     private float nextOpenRequestTime;
 
     internal int DiagnosticActivationCount { get; private set; }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        networkBoxSpawnedInShip.OnValueChanged += OnBoxSpawnedInShipChanged;
+
+        if (IsServer && hasPendingBoxShipPlacement)
+            ApplyPendingBoxShipPlacement();
+
+        if (networkBoxSpawnedInShip.Value)
+            ApplyBoxShipPlacement();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        networkBoxSpawnedInShip.OnValueChanged -= OnBoxSpawnedInShipChanged;
+        base.OnNetworkDespawn();
+    }
+
+    public override void GrabItem()
+    {
+        if (IsServer && networkBoxSpawnedInShip.Value)
+            networkBoxSpawnedInShip.Value = false;
+        base.GrabItem();
+    }
+
+    internal void InitializeBoxShipPlacement(Vector3 localPosition, Quaternion localRotation)
+    {
+        pendingBoxShipLocalPosition = localPosition;
+        pendingBoxShipLocalRotation = localRotation;
+        hasPendingBoxShipPlacement = true;
+
+        if (IsSpawned && IsServer)
+            ApplyPendingBoxShipPlacement();
+    }
+
+    private void ApplyPendingBoxShipPlacement()
+    {
+        if (!IsServer)
+            return;
+
+        networkBoxShipLocalPosition.Value = pendingBoxShipLocalPosition;
+        networkBoxShipLocalRotation.Value = pendingBoxShipLocalRotation;
+        networkBoxSpawnedInShip.Value = true;
+        hasPendingBoxShipPlacement = false;
+        ApplyBoxShipPlacement();
+    }
+
+    private void OnBoxSpawnedInShipChanged(bool previous, bool current)
+    {
+        if (current)
+            ApplyBoxShipPlacement();
+    }
+
+    private void ApplyBoxShipPlacement()
+    {
+        Transform? shipParent = StartOfRound.Instance?.elevatorTransform;
+        if (shipParent == null)
+        {
+            Plugin.Log.LogWarning(
+                $"BOX PACK SHIP PLACEMENT FAILED | Type={PackType} | Elevator transform unavailable.");
+            return;
+        }
+
+        transform.SetParent(shipParent, false);
+        transform.localPosition = networkBoxShipLocalPosition.Value;
+        transform.localRotation = networkBoxShipLocalRotation.Value;
+        CustomSpawnPlacement.MarkForFloorTargetCorrection(this);
+        ApplyInitialShipRestState(networkBoxShipLocalPosition.Value);
+    }
+
+    internal void ApplyInitialShipRestState(Vector3 localRestPosition)
+    {
+        parentObject = null;
+        isInElevator = true;
+        isInShipRoom = true;
+        startFallingPosition = localRestPosition;
+        targetFloorPosition = localRestPosition;
+        fallTime = 1f;
+        hasHitGround = true;
+        reachedFloorTarget = true;
+
+        Rigidbody? body = propBody != null ? propBody : GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+        }
+    }
 
     public override void ItemActivate(
         bool used,
@@ -170,17 +265,48 @@ public class BoosterPackBehaviour : PhysicsProp
         //     result
         // );
 
-        GetSpawnFrame(out Vector3 spawnOrigin, out Vector3 spawnRight);
+        GetSpawnFrame(
+            out Vector3 spawnOrigin,
+            out Vector3 spawnRight,
+            out bool spawnInShip,
+            out Vector3 shipLocalSpawnOrigin,
+            out Vector3 shipLocalSpawnRight);
 
         ulong revealId = CreateRevealId();
         ulong packNetworkObjectId = NetworkObjectId;
+        Vector3 openerPosition = holder!.transform.position;
+        Vector3 openerForward = holder.transform.forward;
+        bool revealIsShipAnchored = false;
+        Vector3 shipLocalOpeningPosition = Vector3.zero;
+        Quaternion shipLocalOpeningRotation = Quaternion.identity;
+        Transform? revealShipTransform = StartOfRound.Instance?.elevatorTransform;
+        if (revealShipTransform != null &&
+            ((isInElevator && isInShipRoom) ||
+             (holder.isInElevator && holder.isInHangarShipRoom)))
+        {
+            Vector3 horizontalOpeningForward = openerForward;
+            horizontalOpeningForward.y = 0f;
+            if (horizontalOpeningForward.sqrMagnitude <= 0.0001f)
+                horizontalOpeningForward = Vector3.forward;
+            else
+                horizontalOpeningForward.Normalize();
+
+            Quaternion openingRotation = Quaternion.LookRotation(horizontalOpeningForward, Vector3.up);
+            revealIsShipAnchored = true;
+            shipLocalOpeningPosition = revealShipTransform.InverseTransformPoint(openerPosition);
+            shipLocalOpeningRotation = Quaternion.Inverse(revealShipTransform.rotation) * openingRotation;
+        }
+
         NotifyRevealClientRpc(
             revealId,
             packNetworkObjectId,
             senderClientId,
             (int)PackType,
-            holder!.transform.position,
-            holder.transform.forward,
+            openerPosition,
+            openerForward,
+            revealIsShipAnchored,
+            shipLocalOpeningPosition,
+            shipLocalOpeningRotation,
             result.IsGodPack,
             result.Cards[0].Card.CardId, (int)result.Cards[0].Variant, (int)result.Cards[0].Card.Rarity,
             result.Cards[1].Card.CardId, (int)result.Cards[1].Variant, (int)result.Cards[1].Card.Rarity,
@@ -192,7 +318,14 @@ public class BoosterPackBehaviour : PhysicsProp
             result.Cards[1].Card.Rarity,
             result.Cards[2].Card.Rarity);
 
-        DelayedBoosterCardSpawn.Schedule(result, spawnOrigin, spawnRight, revealDuration);
+        DelayedBoosterCardSpawn.Schedule(
+            result,
+            spawnOrigin,
+            spawnRight,
+            spawnInShip,
+            shipLocalSpawnOrigin,
+            shipLocalSpawnRight,
+            revealDuration);
 
         // Collection state remains server-authoritative, but a noncritical
         // synchronization failure must not abort an accepted pack opening.
@@ -215,7 +348,9 @@ public class BoosterPackBehaviour : PhysicsProp
     [ClientRpc]
     private void NotifyRevealClientRpc(
         ulong revealId, ulong packNetworkObjectId, ulong openerClientId, int boosterType,
-        Vector3 openerPosition, Vector3 openerForward, bool isGodPack,
+        Vector3 openerPosition, Vector3 openerForward,
+        bool revealIsShipAnchored, Vector3 shipLocalOpeningPosition, Quaternion shipLocalOpeningRotation,
+        bool isGodPack,
         string card1, int variant1, int rarity1,
         string card2, int variant2, int rarity2,
         string card3, int variant3, int rarity3,
@@ -234,6 +369,7 @@ public class BoosterPackBehaviour : PhysicsProp
         BoosterRevealController.Begin(
             revealId, packNetworkObjectId, openerClientId, firstPerson,
             firstPerson ? null : ResolvePlayer(openerClientId), openerPosition, openerForward,
+            revealIsShipAnchored, shipLocalOpeningPosition, shipLocalOpeningRotation,
             (BoosterType)boosterType, isGodPack,
             card1, variant1, rarity1,
             card2, variant2, rarity2,
@@ -285,8 +421,15 @@ public class BoosterPackBehaviour : PhysicsProp
 
     private void GetSpawnFrame(
         out Vector3 spawnOrigin,
-        out Vector3 spawnRight)
+        out Vector3 spawnRight,
+        out bool spawnInShip,
+        out Vector3 shipLocalSpawnOrigin,
+        out Vector3 shipLocalSpawnRight)
     {
+        spawnInShip = false;
+        shipLocalSpawnOrigin = Vector3.zero;
+        shipLocalSpawnRight = Vector3.right;
+
         if (playerHeldBy != null)
         {
             // Spawn the cards a little in front
@@ -299,6 +442,15 @@ public class BoosterPackBehaviour : PhysicsProp
 
             spawnRight =
                 playerHeldBy.transform.right;
+
+            StartOfRound? round = StartOfRound.Instance;
+            if (playerHeldBy.isInElevator && playerHeldBy.isInHangarShipRoom &&
+                round != null && round.elevatorTransform != null)
+            {
+                spawnInShip = true;
+                shipLocalSpawnOrigin = round.elevatorTransform.InverseTransformPoint(spawnOrigin);
+                shipLocalSpawnRight = round.elevatorTransform.InverseTransformDirection(spawnRight).normalized;
+            }
         }
         else
         {
@@ -323,14 +475,16 @@ public class BoosterPackBehaviour : PhysicsProp
     internal static void SpawnPackContents(
         PackResult result,
         Vector3 spawnOrigin,
-        Vector3 spawnRight)
+        Vector3 spawnRight,
+        Transform? shipParent = null)
     {
         foreach (CardPull pull in result.Cards)
         {
             SpawnCard(
                 pull,
                 spawnOrigin,
-                spawnRight
+                spawnRight,
+                shipParent
             );
         }
     }
@@ -338,7 +492,8 @@ public class BoosterPackBehaviour : PhysicsProp
     private static void SpawnCard(
         CardPull pull,
         Vector3 spawnOrigin,
-        Vector3 spawnRight)
+        Vector3 spawnRight,
+        Transform? shipParent)
     {
         if (pull.Card == null)
         {
@@ -384,12 +539,16 @@ public class BoosterPackBehaviour : PhysicsProp
             spawnRight *
             horizontalOffset;
 
-        GameObject cardObject =
-            Instantiate(
+        GameObject cardObject = shipParent != null
+            ? Instantiate(
                 pull.Card.ItemAsset.spawnPrefab,
                 spawnPosition,
-                Quaternion.identity
-            );
+                Quaternion.identity,
+                shipParent)
+            : Instantiate(
+                pull.Card.ItemAsset.spawnPrefab,
+                spawnPosition,
+                Quaternion.identity);
 
         PhysicsProp cardPhysicsProp =
             cardObject.GetComponent<PhysicsProp>();
@@ -409,13 +568,28 @@ public class BoosterPackBehaviour : PhysicsProp
         }
 
         cardPhysicsProp.itemProperties = pull.Card.ItemAsset;
-        float verticalAdjustment =
-            CustomSpawnPlacement.PrepareSpawnHeight(
+        Vector3? shipLocalRestPosition = null;
+        Quaternion shipLocalRestRotation = Quaternion.identity;
+        if (shipParent != null)
+        {
+            Vector3 worldFloorPosition = cardPhysicsProp.GetItemFloorPosition(spawnPosition);
+            cardObject.transform.position = worldFloorPosition;
+            shipLocalRestPosition = shipParent.InverseTransformPoint(worldFloorPosition);
+            shipLocalRestRotation = Quaternion.Euler(
+                cardPhysicsProp.itemProperties.restingRotation.x,
+                cardPhysicsProp.floorYRot + cardPhysicsProp.itemProperties.restingRotation.y,
+                cardPhysicsProp.itemProperties.restingRotation.z);
+            cardObject.transform.localRotation = shipLocalRestRotation;
+            ApplyShipRestState(cardPhysicsProp, shipLocalRestPosition.Value);
+        }
+        else
+        {
+            _ = CustomSpawnPlacement.PrepareSpawnHeight(
                 cardObject,
                 spawnPosition,
                 CustomSpawnPlacement.CardVerticalClearance,
-                out float boundsMinimumY);
-        Vector3 correctedPosition = cardObject.transform.position;
+                out _);
+        }
 
         // Plugin.Log.LogInfo(
         //     $"CUSTOM CARD SPAWN PLACEMENT | CardId={pull.Card.CardId} | " +
@@ -442,6 +616,10 @@ public class BoosterPackBehaviour : PhysicsProp
         instanceData.Initialize(
             pull
         );
+        if (shipLocalRestPosition.HasValue)
+            instanceData.InitializeShipSpawnPlacement(
+                shipLocalRestPosition.Value,
+                shipLocalRestRotation);
 
         NetworkObject cardNetworkObject =
             cardObject.GetComponent<NetworkObject>();
@@ -469,6 +647,14 @@ public class BoosterPackBehaviour : PhysicsProp
         CustomSpawnPlacement.MarkForFloorTargetCorrection(cardPhysicsProp);
         cardNetworkObject.Spawn();
 
+        if (shipLocalRestPosition.HasValue)
+        {
+            Plugin.Log.LogInfo(
+                $"CARD SHIP SPAWN | CardId={pull.Card.CardId} | InShip=True | " +
+                $"WorldFloorPosition={cardObject.transform.position} | " +
+                $"LocalShipPosition={shipLocalRestPosition.Value} | Parent={shipParent!.name}");
+        }
+
         // Plugin.Log.LogInfo(
         //     $"SPAWNED SLOT " +
         //     $"{pull.SlotIndex + 1}: " +
@@ -476,6 +662,18 @@ public class BoosterPackBehaviour : PhysicsProp
         //     $"{pull.Variant} | " +
         //     $"${pull.UngradedValue}"
         // );
+    }
+
+    private static void ApplyShipRestState(GrabbableObject card, Vector3 localRestPosition)
+    {
+        card.parentObject = null;
+        card.isInElevator = true;
+        card.isInShipRoom = true;
+        card.startFallingPosition = localRestPosition;
+        card.targetFloorPosition = localRestPosition;
+        card.fallTime = 1f;
+        card.hasHitGround = true;
+        card.reachedFloorTarget = true;
     }
 
     private bool RegisterCollection(
@@ -533,15 +731,28 @@ internal sealed class DelayedBoosterCardSpawn : MonoBehaviour
     private PackResult? result;
     private Vector3 spawnOrigin;
     private Vector3 spawnRight;
+    private bool spawnInShip;
+    private Vector3 shipLocalSpawnOrigin;
+    private Vector3 shipLocalSpawnRight;
     private float delay;
 
-    internal static void Schedule(PackResult result, Vector3 spawnOrigin, Vector3 spawnRight, float delay)
+    internal static void Schedule(
+        PackResult result,
+        Vector3 spawnOrigin,
+        Vector3 spawnRight,
+        bool spawnInShip,
+        Vector3 shipLocalSpawnOrigin,
+        Vector3 shipLocalSpawnRight,
+        float delay)
     {
         GameObject host = new("LethalCardsDelayedBoosterCardSpawn");
         DelayedBoosterCardSpawn spawner = host.AddComponent<DelayedBoosterCardSpawn>();
         spawner.result = result;
         spawner.spawnOrigin = spawnOrigin;
         spawner.spawnRight = spawnRight;
+        spawner.spawnInShip = spawnInShip;
+        spawner.shipLocalSpawnOrigin = shipLocalSpawnOrigin;
+        spawner.shipLocalSpawnRight = shipLocalSpawnRight;
         spawner.delay = delay;
         spawner.StartCoroutine(spawner.SpawnAfterReveal());
     }
@@ -551,7 +762,31 @@ internal sealed class DelayedBoosterCardSpawn : MonoBehaviour
         yield return new WaitForSeconds(delay);
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer && result != null)
-            BoosterPackBehaviour.SpawnPackContents(result, spawnOrigin, spawnRight);
+        {
+            Transform? shipParent = null;
+            Vector3 resolvedSpawnOrigin = spawnOrigin;
+            Vector3 resolvedSpawnRight = spawnRight;
+            if (spawnInShip)
+            {
+                shipParent = StartOfRound.Instance?.elevatorTransform;
+                if (shipParent != null)
+                {
+                    resolvedSpawnOrigin = shipParent.TransformPoint(shipLocalSpawnOrigin);
+                    resolvedSpawnRight = shipParent.TransformDirection(shipLocalSpawnRight).normalized;
+                }
+                else
+                {
+                    Plugin.Log.LogWarning(
+                        "CARD SHIP SPAWN FALLBACK | Elevator transform was unavailable; using the captured world spawn frame.");
+                }
+            }
+
+            BoosterPackBehaviour.SpawnPackContents(
+                result,
+                resolvedSpawnOrigin,
+                resolvedSpawnRight,
+                shipParent);
+        }
 
         Destroy(gameObject);
     }

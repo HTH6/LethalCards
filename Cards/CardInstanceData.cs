@@ -1,4 +1,5 @@
 using TMPro;
+using LethalCards.Boosters;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -33,6 +34,9 @@ public class CardInstanceData : NetworkBehaviour
 
     private string cardId = "";
     private readonly NetworkVariable<int> networkFinalValue = new(-1);
+    private readonly NetworkVariable<bool> networkSpawnedInShip = new(false);
+    private readonly NetworkVariable<Vector3> networkShipLocalPosition = new();
+    private readonly NetworkVariable<Quaternion> networkShipLocalRotation = new();
     private int pendingFinalValue = -1;
 
     // ============================================================
@@ -53,6 +57,9 @@ public class CardInstanceData : NetworkBehaviour
     private int pendingGrade;
 
     private int pendingUngradedValue;
+    private bool hasPendingShipSpawnPlacement;
+    private Vector3 pendingShipLocalPosition;
+    private Quaternion pendingShipLocalRotation;
 
     // ============================================================
 
@@ -92,6 +99,7 @@ public class CardInstanceData : NetworkBehaviour
 
         networkUngradedValue.OnValueChanged += OnValueChanged;
         networkFinalValue.OnValueChanged += OnValueChanged;
+        networkSpawnedInShip.OnValueChanged += OnSpawnedInShipChanged;
 
         // Natural scrap spawns have no booster/return initialization.
         if (IsServer && !hasPendingInitialization)
@@ -109,6 +117,12 @@ public class CardInstanceData : NetworkBehaviour
         {
             ApplyPendingInitialization();
         }
+
+        if (IsServer && hasPendingShipSpawnPlacement)
+            ApplyPendingShipSpawnPlacement();
+
+        if (networkSpawnedInShip.Value)
+            ApplyShipSpawnPlacement();
 
         RefreshGradeVisual();
         RefreshScrapValue();
@@ -134,8 +148,63 @@ public class CardInstanceData : NetworkBehaviour
             OnGradeChanged;
         networkUngradedValue.OnValueChanged -= OnValueChanged;
         networkFinalValue.OnValueChanged -= OnValueChanged;
+        networkSpawnedInShip.OnValueChanged -= OnSpawnedInShipChanged;
 
         base.OnNetworkDespawn();
+    }
+
+    internal void InitializeShipSpawnPlacement(Vector3 localPosition, Quaternion localRotation)
+    {
+        pendingShipLocalPosition = localPosition;
+        pendingShipLocalRotation = localRotation;
+        hasPendingShipSpawnPlacement = true;
+
+        if (IsSpawned && IsServer)
+            ApplyPendingShipSpawnPlacement();
+    }
+
+    private void ApplyPendingShipSpawnPlacement()
+    {
+        if (!IsServer)
+            return;
+
+        networkShipLocalPosition.Value = pendingShipLocalPosition;
+        networkShipLocalRotation.Value = pendingShipLocalRotation;
+        networkSpawnedInShip.Value = true;
+        hasPendingShipSpawnPlacement = false;
+        ApplyShipSpawnPlacement();
+    }
+
+    private void OnSpawnedInShipChanged(bool previous, bool current)
+    {
+        if (current)
+            ApplyShipSpawnPlacement();
+    }
+
+    private void ApplyShipSpawnPlacement()
+    {
+        StartOfRound? round = StartOfRound.Instance;
+        GrabbableObject? card = GetComponent<GrabbableObject>();
+        if (round == null || round.elevatorTransform == null || card == null)
+        {
+            Plugin.Log.LogWarning(
+                $"CARD SHIP PLACEMENT FAILED | CardId={CardId} | " +
+                "Missing StartOfRound, elevator transform, or GrabbableObject.");
+            return;
+        }
+
+        transform.SetParent(round.elevatorTransform, false);
+        transform.localPosition = networkShipLocalPosition.Value;
+        transform.localRotation = networkShipLocalRotation.Value;
+        CustomSpawnPlacement.MarkForFloorTargetCorrection(card);
+        card.parentObject = null;
+        card.isInElevator = true;
+        card.isInShipRoom = true;
+        card.startFallingPosition = networkShipLocalPosition.Value;
+        card.targetFloorPosition = networkShipLocalPosition.Value;
+        card.fallTime = 1f;
+        card.hasHitGround = true;
+        card.reachedFloorTarget = true;
     }
 
     private void ApplyPendingInitialization()
@@ -400,6 +469,18 @@ public class CardInstanceData : NetworkBehaviour
 
     private void LateUpdate()
     {
+        if (IsServer && networkSpawnedInShip.Value)
+        {
+            GrabbableObject? card = GetComponent<GrabbableObject>();
+            if (card == null || card.isHeld || card.isHeldByEnemy ||
+                !card.isInElevator || !card.isInShipRoom)
+            {
+                // The initial placement has served its purpose. Vanilla pickup/drop
+                // networking owns all subsequent parent and floor state changes.
+                networkSpawnedInShip.Value = false;
+            }
+        }
+
         // Vanilla spawn/load scrap synchronization can run after OnNetworkSpawn.
         // Keep the physical value consistent with the server-owned metadata.
         if (IsSpawned)

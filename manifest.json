@@ -1,6 +1,6 @@
 {
   "name": "LethalCards",
-  "version_number": "1.0.1",
+  "version_number": "1.0.2",
   "website_url": "https://github.com/HTH6/LethalCards",
   "description": "Find booster packs, rip packs, collect Lethal Company trading cards, discover variants, and submit your best pulls for grading.",
   "dependencies": [

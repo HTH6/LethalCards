@@ -4,7 +4,12 @@
 
 ### ▶ Watch the Official Lethal Cards Trailer by clicking the link above
 
+## AI-Usage Notice
+
+AI was utilized to help build the code logic behind the mod. All card artwork itself was done by hand. AI was used to generate the booster box and booster pack art for those item assets themselves, but not the 33 individual cards.
+
 **Hunt for Packs. Rip Them. Collect Cards. Grade Them.**
+
 
 Want to support my work? Buy me a coffee via Venmo :)  
 **@hdaddyo**
@@ -429,5 +434,3 @@ Thanks for playing **Lethal Cards**.
 ## License
 
 Lethal Cards is licensed under the [MIT License](LICENSE).
-
-**Hunt for Packs. Rip Them. Collect Cards. Grade Them.**

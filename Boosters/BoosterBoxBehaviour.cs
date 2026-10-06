@@ -89,6 +89,28 @@ public class BoosterBoxBehaviour : PhysicsProp
         try
         {
             Plugin.Log.LogInfo($"BOOSTER BOX OPEN | Type={BoxType}");
+            Transform? shipParent = StartOfRound.Instance.elevatorTransform;
+            bool boxShipState = isInElevator && isInShipRoom;
+            bool holderShipState = holder.isInElevator && holder.isInHangarShipRoom;
+            bool shipDetected = shipParent != null && (boxShipState || holderShipState);
+            Plugin.Log.LogInfo(
+                $"BOOSTER BOX SHIP CONTEXT | Type={BoxType} | BoxInElevator={isInElevator} | " +
+                $"BoxInShipRoom={isInShipRoom} | HolderInElevator={holder.isInElevator} | " +
+                $"HolderInHangarShipRoom={holder.isInHangarShipRoom} | ShipDetected={shipDetected}");
+
+            Vector3 shipLocalSpawnOrigin = shipDetected
+                ? shipParent!.InverseTransformPoint(transform.position)
+                : Vector3.zero;
+            Vector3 shipLocalLayoutRight = shipDetected
+                ? shipParent!.InverseTransformDirection(Vector3.right).normalized
+                : Vector3.right;
+            Vector3 shipLocalLayoutUp = shipDetected
+                ? shipParent!.InverseTransformDirection(Vector3.up).normalized
+                : Vector3.up;
+            Vector3 shipLocalLayoutForward = shipDetected
+                ? shipParent!.InverseTransformDirection(Vector3.forward).normalized
+                : Vector3.forward;
+
             float halfSpacingX = 0.35f;
             float halfSpacingZ = 0.25f;
             for (int i = 0; i < packs.Length; i++)
@@ -104,8 +126,17 @@ public class BoosterBoxBehaviour : PhysicsProp
                     throw new InvalidOperationException($"Registered {types[i]} booster prefab is unavailable.");
 
                 // BoosterPrefabDiagnostics.ValidateAndLog(item.spawnPrefab, types[i], "BOX PACK PREFAB");
-                packs[i] = Instantiate(item.spawnPrefab, transform.position, Quaternion.identity,
-                    StartOfRound.Instance.propsContainer);
+                Vector3 initialPosition = shipDetected
+                    ? shipParent!.TransformPoint(shipLocalSpawnOrigin)
+                    : transform.position;
+                Transform initialParent = shipDetected
+                    ? shipParent!
+                    : StartOfRound.Instance.propsContainer;
+                packs[i] = Instantiate(
+                    item.spawnPrefab,
+                    initialPosition,
+                    Quaternion.identity,
+                    initialParent);
                 // BoosterPrefabDiagnostics.ValidateAndLog(packs[i], types[i], "BOX PACK INSTANCE PRE-SPAWN");
                 BoosterPackBehaviour pack = packs[i].GetComponent<BoosterPackBehaviour>();
                 if (pack.PackType != types[i])
@@ -113,8 +144,8 @@ public class BoosterBoxBehaviour : PhysicsProp
                 pack.SpawnedFromBox = true;
                 pack.itemProperties = item;
                 pack.isInFactory = isInFactory;
-                pack.isInShipRoom = isInShipRoom;
-                pack.isInElevator = isInElevator;
+                pack.isInShipRoom = shipDetected || isInShipRoom;
+                pack.isInElevator = shipDetected || isInElevator;
                 scrapValues[i] = UnityEngine.Random.Range(item.minValue, item.maxValue);
                 pack.SetScrapValue(scrapValues[i]);
 
@@ -131,18 +162,40 @@ public class BoosterBoxBehaviour : PhysicsProp
             // Stage all four before spawning; no physics frame elapses at the staging position.
             for (int i = 0; i < packs.Length; i++)
             {
-                Vector3 originalPosition = transform.position + new Vector3(
-                    i % 2 == 0 ? -halfSpacingX : halfSpacingX, 0.15f,
-                    i < 2 ? -halfSpacingZ : halfSpacingZ);
+                float layoutX = i % 2 == 0 ? -halfSpacingX : halfSpacingX;
+                float layoutZ = i < 2 ? -halfSpacingZ : halfSpacingZ;
+                Vector3 originalPosition = shipDetected
+                    ? shipParent!.TransformPoint(shipLocalSpawnOrigin) +
+                      shipParent.TransformDirection(shipLocalLayoutRight) * layoutX +
+                      shipParent.TransformDirection(shipLocalLayoutUp) * 0.15f +
+                      shipParent.TransformDirection(shipLocalLayoutForward) * layoutZ
+                    : transform.position + new Vector3(layoutX, 0.15f, layoutZ);
                 packs[i].transform.position = originalPosition;
                 BoosterPackBehaviour pack = packs[i].GetComponent<BoosterPackBehaviour>();
-                float verticalAdjustment =
-                    CustomSpawnPlacement.PrepareSpawnHeight(
+                Vector3? shipLocalRestPosition = null;
+                if (shipDetected)
+                {
+                    Vector3 worldFloorPosition = pack.GetItemFloorPosition(originalPosition);
+                    packs[i].transform.position = worldFloorPosition;
+                    shipLocalRestPosition = shipParent!.InverseTransformPoint(worldFloorPosition);
+                    Quaternion shipLocalRestRotation = Quaternion.Euler(
+                        pack.itemProperties.restingRotation.x,
+                        pack.floorYRot + pack.itemProperties.restingRotation.y,
+                        pack.itemProperties.restingRotation.z);
+                    packs[i].transform.localRotation = shipLocalRestRotation;
+                    pack.ApplyInitialShipRestState(shipLocalRestPosition.Value);
+                    pack.InitializeBoxShipPlacement(
+                        shipLocalRestPosition.Value,
+                        shipLocalRestRotation);
+                }
+                else
+                {
+                    _ = CustomSpawnPlacement.PrepareSpawnHeight(
                         packs[i],
                         originalPosition,
                         CustomSpawnPlacement.BoosterPackVerticalClearance,
-                        out float boundsMinimumY);
-                Vector3 correctedPosition = packs[i].transform.position;
+                        out _);
+                }
 
                 /* Plugin.Log.LogInfo(
                     $"CUSTOM PACK SPAWN PLACEMENT | Type={types[i]} | " +
@@ -154,6 +207,18 @@ public class BoosterBoxBehaviour : PhysicsProp
                 networkObject.Spawn();
                 if (!networkObject.IsSpawned)
                     throw new InvalidOperationException($"Pack {i + 1} did not network-spawn.");
+                if (shipLocalRestPosition.HasValue)
+                {
+                    Rigidbody? body = pack.propBody != null ? pack.propBody : pack.GetComponent<Rigidbody>();
+                    Plugin.Log.LogInfo(
+                        $"BOX PACK SHIP SPAWN | BoxType={BoxType} | PackType={types[i]} | " +
+                        $"NetworkObjectId={networkObject.NetworkObjectId} | ShipDetected=True | " +
+                        $"WorldPosition={packs[i].transform.position} | " +
+                        $"ShipLocalPosition={shipLocalRestPosition.Value} | Parent={packs[i].transform.parent?.name ?? "<none>"} | " +
+                        $"IsInElevator={pack.isInElevator} | IsInShipRoom={pack.isInShipRoom} | " +
+                        $"TargetFloorPosition={pack.targetFloorPosition} | " +
+                        $"RigidbodyVelocity={(body != null ? body.velocity.ToString() : "<none>")}");
+                }
                 // Plugin.Log.LogInfo($"BOX PACK INSTANCE SPAWNED | Type={types[i]} | NetworkObjectId={networkObject.NetworkObjectId} | " +
                 //     $"Spawned={networkObject.IsSpawned} | BoosterBehaviour={spawnedPack != null} | PackType={spawnedPack?.PackType}");
                 // Plugin.Log.LogInfo($"BOX PACK {i + 1} | Type={types[i]}");
