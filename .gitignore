@@ -9,6 +9,7 @@ MULTIPLAYER_TESTING.md
 # Build/package output
 release/
 *.zip
+dist/
 
 # Visual Studio / VS Code
 .vs/
