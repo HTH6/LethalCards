@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+- Added "Card Binder" scrap item that appears in dungeon as findable scrap which allows players to insert cards to increase binder value and sell binder all as one scrap item, thus saving multiple trips back to the company window for low-value cards
+- Fixed card value modifiers when interacting with other mods such as lethal casino. Previously, card value would not change. Now it changes as expected when interacting with these mods.
+- Added compression to texture assets, reducing AssetBundle file size from 46mb down to ~11mb, significantly reducing mod size on disk.
+
 ## 1.0.3
 - Fixed card submission timer preventing card submission on the grading pedestal before the ship finished landing at company building
 - Reorganized README
