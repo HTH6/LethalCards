@@ -13,6 +13,7 @@ using HarmonyLib;
 using System.Reflection;
 using LethalCards.Grading;
 using LethalCards.Networking;
+using LethalCards.Binders;
 
 namespace LethalCards;
 
@@ -22,18 +23,23 @@ public class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "Hdaddy.LethalCards";
     public const string PluginName = "Lethal Cards";
-    public const string PluginVersion = "1.0.3";
+    public const string PluginVersion = "1.1.0";
 
     /* private static readonly Vector3 CardHeldPositionCorrection =
         new(0.1f, 0.05f, -0.1f); */
 
     private static readonly Vector3 CardHeldPositionCorrection =
-        new(0.1f, 0.08f, -0.08f);
+        new(0.1f, 0.1f, -0.08f);
     private static readonly Vector3 BoosterPackHeldPositionCorrection =
-        new(0.1f, 0.08f, -0.08f);
+        new(0.1f, 0.1f, -0.08f);
     private static readonly Vector3 BoosterBoxHeldPositionCorrection =
+        new(0.08f, 0.175f, -0.12f);
+    private static readonly Vector3 BinderHeldPositionCorrection =
         new(0.1f, 0.1f, -0.1f);
+    private static readonly Vector3 BinderHeldRotationCorrection =
+        new(-90f, 0f, 0f);
     private static readonly HashSet<Item> HeldPositionAdjustedItems = new();
+    private static readonly HashSet<Item> HeldRotationAdjustedItems = new();
     private const float CardFloorVerticalOffset = 0.03f;
     private const float BoosterPackFloorVerticalOffset = 0.06f;
     private const float BoosterBoxFloorVerticalOffset = 0.15f;
@@ -48,6 +54,7 @@ public class Plugin : BaseUnityPlugin
     internal static Item? HeavyBoosterItem;
     internal static Item? BoosterBoxItem;
     internal static Item? GoldenBoosterBoxItem;
+    internal static Item? CardBinderItem;
 
     private Harmony? harmony;
 
@@ -237,6 +244,10 @@ public class Plugin : BaseUnityPlugin
             if (card.AssetName != null)
                 RegisterCard(bundle, card);
         }
+
+        // Append new item types after the established registry order so existing
+        // vanilla ship-save item indices remain stable.
+        CardBinderItem = RegisterCardBinder(bundle);
 
         Log.LogInfo(
             // $"Finished registering {CardDatabase.Cards.Count} cards."
@@ -715,6 +726,73 @@ public class Plugin : BaseUnityPlugin
         item.maxValue = safeValue;
     }
 
+    private Item? RegisterCardBinder(AssetBundle bundle)
+    {
+        const string assetName = "CardBinderItem";
+        Item item = bundle.LoadAsset<Item>(assetName);
+        if (item == null || item.spawnPrefab == null)
+        {
+            Log.LogError($"CARD BINDER REGISTRATION FAILED | Asset={assetName} | Missing Item or spawn prefab.");
+            return null;
+        }
+
+        if (item.spawnPrefab.name != "CardBinder")
+        {
+            Log.LogError(
+                $"CARD BINDER REGISTRATION FAILED | Asset={assetName} | " +
+                $"ExpectedPrefab=CardBinder | ActualPrefab={item.spawnPrefab.name}");
+            return null;
+        }
+
+        NetworkObject networkObject = item.spawnPrefab.GetComponent<NetworkObject>();
+        PhysicsProp physicsProp = item.spawnPrefab.GetComponent<PhysicsProp>();
+        if (networkObject == null || physicsProp == null)
+        {
+            Log.LogError(
+                $"CARD BINDER REGISTRATION FAILED | Asset={assetName} | Prefab={item.spawnPrefab.name} | " +
+                $"NetworkObject={networkObject != null} | PhysicsProp={physicsProp != null}");
+            return null;
+        }
+
+        if (item.spawnPrefab.GetComponents<GrabbableObject>().Length != 1)
+        {
+            Log.LogError(
+                $"CARD BINDER REGISTRATION FAILED | Prefab={item.spawnPrefab.name} | " +
+                "Expected exactly one GrabbableObject component.");
+            return null;
+        }
+
+        bool hasPickupCollider = System.Linq.Enumerable.Any(
+            item.spawnPrefab.GetComponentsInChildren<Collider>(true),
+            collider => collider != null && collider.CompareTag("PhysicsProp"));
+        if (!hasPickupCollider)
+        {
+            Log.LogError(
+                $"CARD BINDER REGISTRATION FAILED | Prefab={item.spawnPrefab.name} | " +
+                "No collider tagged PhysicsProp was found for vanilla pickup targeting.");
+            return null;
+        }
+
+        SetFixedScrapValue(item, CardBinderBehaviour.InitialScrapValue);
+        ApplyHeldPositionCorrection(item, BinderHeldPositionCorrection, "Binder");
+        ApplyHeldRotationCorrection(item, BinderHeldRotationCorrection, "Binder");
+        item.saveItemVariable = true;
+        if (item.spawnPrefab.GetComponent<CardBinderBehaviour>() == null)
+            item.spawnPrefab.AddComponent<CardBinderBehaviour>();
+
+        LethalLib.Modules.NetworkPrefabs.RegisterNetworkPrefab(item.spawnPrefab);
+        int spawnWeight = BalanceConfig.BinderSpawnWeight;
+        if (spawnWeight > 0)
+            Items.RegisterScrap(item, spawnWeight, Levels.LevelTypes.All);
+        else
+            Items.RegisterItem(item);
+
+        Log.LogInfo(
+            $"CARD BINDER REGISTERED | Asset={assetName} | Prefab={item.spawnPrefab.name} | " +
+            $"InitialValue={CardBinderBehaviour.InitialScrapValue} | SpawnWeight={spawnWeight}");
+        return item;
+    }
+
     private static void ApplyHeldPositionCorrection(
         Item item,
         Vector3 correction,
@@ -728,5 +806,20 @@ public class Plugin : BaseUnityPlugin
         // Log.LogInfo(
         //     $"HELD OFFSET CONFIG | Type={type} | BaseOffset={baseOffset} | " +
         //     $"Correction={correction} | FinalOffset={item.positionOffset}");
+    }
+
+    private static void ApplyHeldRotationCorrection(
+        Item item,
+        Vector3 correction,
+        string type)
+    {
+        if (!HeldRotationAdjustedItems.Add(item))
+            return;
+
+        Vector3 baseOffset = item.rotationOffset;
+        item.rotationOffset += correction;
+        // Log.LogInfo(
+        //     $"HELD ROTATION CONFIG | Type={type} | BaseOffset={baseOffset} | " +
+        //     $"Correction={correction} | FinalOffset={item.rotationOffset}");
     }
 }

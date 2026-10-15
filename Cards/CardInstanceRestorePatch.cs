@@ -4,15 +4,33 @@ namespace LethalCards.Cards;
 
 public static class CardSaveData
 {
+    private const int CurrentValueFormatBase = 1000000;
+    private const int CurrentValueScale = 1000;
+
     public static int Encode(
         CardVariant variant,
-        int grade)
+        int grade,
+        int? currentValue = null)
     {
         int variantValue =
             (int)variant;
 
-        return
+        int legacyValue =
             1000 +
+            (variantValue * 100) +
+            grade;
+
+        if (!currentValue.HasValue)
+            return legacyValue;
+
+        int maximumCurrentValue =
+            (int.MaxValue - CurrentValueFormatBase - 499) / CurrentValueScale;
+        int safeCurrentValue = System.Math.Min(
+            System.Math.Max(0, currentValue.Value),
+            maximumCurrentValue);
+
+        return CurrentValueFormatBase +
+            (safeCurrentValue * CurrentValueScale) +
             (variantValue * 100) +
             grade;
     }
@@ -20,16 +38,27 @@ public static class CardSaveData
     public static bool TryDecode(
         int value,
         out CardVariant variant,
-        out int grade)
+        out int grade,
+        out int? currentValue)
     {
         variant = CardVariant.Standard;
         grade = 0;
+        currentValue = null;
 
         if (value < 1000)
             return false;
 
-        int encoded =
-            value - 1000;
+        int encoded;
+        if (value >= CurrentValueFormatBase)
+        {
+            encoded = value - CurrentValueFormatBase;
+            currentValue = encoded / CurrentValueScale;
+            encoded %= CurrentValueScale;
+        }
+        else
+        {
+            encoded = value - 1000;
+        }
 
         int variantValue =
             encoded / 100;
@@ -84,7 +113,8 @@ public static class CardSavePatch
         __result =
             CardSaveData.Encode(
                 data.Variant,
-                data.Grade
+                data.Grade,
+                BalanceConfig.LegacyCardValueBehavior ? null : data.FinalValue
             );
 
         /* Plugin.Log.LogInfo(
@@ -121,7 +151,8 @@ public static class CardLoadPatch
         if (!CardSaveData.TryDecode(
             saveData,
             out CardVariant variant,
-            out int grade))
+            out int grade,
+            out int? currentValue))
         {
             return;
         }
@@ -138,7 +169,8 @@ public static class CardLoadPatch
         data.InitializeLoaded(
             card,
             variant,
-            grade
+            grade,
+            BalanceConfig.LegacyCardValueBehavior ? null : currentValue
         );
 
         // CardInstanceData applies physical value after pending initialization

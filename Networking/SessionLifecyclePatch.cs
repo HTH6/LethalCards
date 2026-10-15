@@ -41,6 +41,7 @@ public static class SessionLifecyclePatch
         // ==================================================
         
         //DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
+        //DebugSpawnPatch.SpawnDebugBinderOnShip();
 
         CollectionNetworkSync.Initialize();
         GradingNetworkSync.Initialize();

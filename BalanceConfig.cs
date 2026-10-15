@@ -12,6 +12,7 @@ internal static class BalanceConfig
     internal const int DefaultHeavyBoosterSpawnWeight = 25;
     internal const int DefaultStandardBoosterBoxSpawnWeight = 20;
     internal const int DefaultGoldenBoosterBoxSpawnWeight = 10;
+    internal const int DefaultBinderSpawnWeight = 20;
     internal const int DefaultLightBoosterValue = 30;
     internal const int DefaultHeavyBoosterValue = 50;
     internal const int DefaultStandardBoosterBoxValue = 75;
@@ -49,10 +50,12 @@ internal static class BalanceConfig
     internal static int HeavyBoosterSpawnWeight { get; private set; } = DefaultHeavyBoosterSpawnWeight;
     internal static int StandardBoosterBoxSpawnWeight { get; private set; } = DefaultStandardBoosterBoxSpawnWeight;
     internal static int GoldenBoosterBoxSpawnWeight { get; private set; } = DefaultGoldenBoosterBoxSpawnWeight;
+    internal static int BinderSpawnWeight { get; private set; } = DefaultBinderSpawnWeight;
     internal static int LightBoosterValue { get; private set; } = DefaultLightBoosterValue;
     internal static int HeavyBoosterValue { get; private set; } = DefaultHeavyBoosterValue;
     internal static int StandardBoosterBoxValue { get; private set; } = DefaultStandardBoosterBoxValue;
     internal static int GoldenBoosterBoxValue { get; private set; } = DefaultGoldenBoosterBoxValue;
+    internal static bool LegacyCardValueBehavior { get; private set; }
 
     private static readonly float[] GradeMultipliers = { 0f, 0f, 0.2f, 0.35f, 0.5f, 0.65f, 0.8f, 1f, 1.5f, 2.5f, 5f };
     private static readonly float[] VariantValueMultipliers = { 1f, 1f, 1.5f, 2f, 3f };
@@ -92,6 +95,8 @@ internal static class BalanceConfig
             "Relative scrap spawn weight for Standard Booster Boxes on all levels. 0 disables natural spawning while preserving item registration. Restart after changing.");
         GoldenBoosterBoxSpawnWeight = BindNonNegativeInt(config, "Spawning", "GoldenBoosterBoxSpawnWeight", DefaultGoldenBoosterBoxSpawnWeight,
             "Relative scrap spawn weight for Golden Booster Boxes on all levels. 0 disables natural spawning while preserving item registration. Restart after changing.");
+        BinderSpawnWeight = BindNonNegativeInt(config, "Spawning", "BinderSpawnWeight", DefaultBinderSpawnWeight,
+            "Relative scrap spawn weight for Card Binders on all levels. Higher values make them more common. 0 disables natural spawning while preserving item registration. Restart after changing.");
 
         LightBoosterValue = BindNonNegativeInt(config, "Economy", "LightBoosterScrapValue", DefaultLightBoosterValue,
             "Fixed scrap value for Light Booster packs. Negative values are clamped to 0.");
@@ -101,6 +106,14 @@ internal static class BalanceConfig
             "Fixed scrap value for Standard Booster Boxes. Negative values are clamped to 0.");
         GoldenBoosterBoxValue = BindNonNegativeInt(config, "Economy", "GoldenBoosterBoxScrapValue", DefaultGoldenBoosterBoxValue,
             "Fixed scrap value for Golden Booster Boxes. Negative values are clamped to 0.");
+
+        LegacyCardValueBehavior = config.Bind(
+            "Compatibility",
+            "LegacyCardValueBehavior",
+            false,
+            new ConfigDescription(
+                "When enabled, Lethal Cards preserves its legacy card-value behavior and does not permanently adopt value changes made by external mods. When disabled (default), legitimate external scrap-value changes are synchronized to the card's current value for compatibility with mods such as Lethal Casino."))
+            .Value;
 
         config.Save();
         LogEffectiveValues();
@@ -322,7 +335,7 @@ internal static class BalanceConfig
         Plugin.Log.LogInfo($"VARIANT VALUE CONFIG EFFECTIVE | Standard={VariantValueMultipliers[(int)CardVariant.Standard]:F2}x | Foil={VariantValueMultipliers[(int)CardVariant.Foil]:F2}x | AlternateArt={VariantValueMultipliers[(int)CardVariant.AlternateArt]:F2}x | Misprint={VariantValueMultipliers[(int)CardVariant.Misprint]:F2}x");
         Plugin.Log.LogInfo($"GOD PACK CONFIG EFFECTIVE | TriggerChance={HeavyGodPackChancePercent:F2}% | UltraRare={GodPackRarities.UltraRare:F2}% | SecretRare={GodPackRarities.SecretRare:F2}%");
         Plugin.Log.LogInfo($"BOOSTER BOX CONFIG EFFECTIVE | StandardBoxLight={StandardBoxPackMix.Light:F2}% | StandardBoxHeavy={StandardBoxPackMix.Heavy:F2}% | GoldenBoxHeavy=100.00%");
-        Plugin.Log.LogInfo($"BALANCE CONFIG EFFECTIVE | GradingCost={GradingCost} | GradingTurnaroundDays={GradingTurnaroundDays} | LightSpawnWeight={LightBoosterSpawnWeight} | HeavySpawnWeight={HeavyBoosterSpawnWeight} | StandardBoxSpawnWeight={StandardBoosterBoxSpawnWeight} | GoldenBoxSpawnWeight={GoldenBoosterBoxSpawnWeight}");
+        Plugin.Log.LogInfo($"BALANCE CONFIG EFFECTIVE | GradingCost={GradingCost} | GradingTurnaroundDays={GradingTurnaroundDays} | LightSpawnWeight={LightBoosterSpawnWeight} | HeavySpawnWeight={HeavyBoosterSpawnWeight} | StandardBoxSpawnWeight={StandardBoosterBoxSpawnWeight} | GoldenBoxSpawnWeight={GoldenBoosterBoxSpawnWeight} | BinderSpawnWeight={BinderSpawnWeight}");
         Plugin.Log.LogInfo($"ECONOMY CONFIG EFFECTIVE | LightBoosterValue={LightBoosterValue} | HeavyBoosterValue={HeavyBoosterValue} | StandardBoxValue={StandardBoosterBoxValue} | GoldenBoxValue={GoldenBoosterBoxValue}");
         Plugin.Log.LogInfo($"GRADING CHANCE CONFIG EFFECTIVE | Grade1={GradeChances.GetWeight(1):F2}% | Grade2={GradeChances.GetWeight(2):F2}% | Grade3={GradeChances.GetWeight(3):F2}% | Grade4={GradeChances.GetWeight(4):F2}% | Grade5={GradeChances.GetWeight(5):F2}% | Grade6={GradeChances.GetWeight(6):F2}% | Grade7={GradeChances.GetWeight(7):F2}% | Grade8={GradeChances.GetWeight(8):F2}% | Grade9={GradeChances.GetWeight(9):F2}% | Grade10={GradeChances.GetWeight(10):F2}%");
         Plugin.Log.LogInfo($"GRADING MULTIPLIER CONFIG EFFECTIVE | Grade1={GradeMultipliers[1]:F2} | Grade2={GradeMultipliers[2]:F2} | Grade3={GradeMultipliers[3]:F2} | Grade4={GradeMultipliers[4]:F2} | Grade5={GradeMultipliers[5]:F2} | Grade6={GradeMultipliers[6]:F2} | Grade7={GradeMultipliers[7]:F2} | Grade8={GradeMultipliers[8]:F2} | Grade9={GradeMultipliers[9]:F2} | Grade10={GradeMultipliers[10]:F2}");

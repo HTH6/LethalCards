@@ -23,6 +23,8 @@ try {
         @('LethalCards.Boosters.BoosterPackBehaviour', 'RequestOpenPackServerRpc', '__beginSendServerRpc'),
         @('LethalCards.Boosters.BoosterPackBehaviour', 'NotifyRevealClientRpc', '__beginSendClientRpc'),
         @('LethalCards.Boosters.BoosterBoxBehaviour', 'RequestOpenBoxServerRpc', '__beginSendServerRpc'),
+        @('LethalCards.Binders.CardBinderBehaviour', 'StoreCardServerRpc', '__beginSendServerRpc'),
+        @('LethalCards.Binders.CardBinderBehaviour', 'ApplyBinderValueClientRpc', '__beginSendClientRpc'),
         @('LethalCards.Networking.NetworkItemConsumption', 'ClearInventoryClientRpc', '__beginSendClientRpc')
     )) {
         $type = $assembly.MainModule.GetType($spec[0])
@@ -56,6 +58,10 @@ try {
     }
 
     $player = $game.MainModule.GetType('GameNetcodeStuff.PlayerControllerB')
+    foreach ($methodName in @('BeginGrabObject', 'SetHoverTipAndCurrentInteractTrigger')) {
+        Assert-True (@($player.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Binder interaction hook missing or ambiguous: $methodName"
+    }
+    Assert-True (@($player.Fields | Where-Object Name -eq 'interactableObjectsMask').Count -eq 1) 'Binder interaction mask field is missing or ambiguous'
     $pickup = $player.Methods | Where-Object Name -eq 'GrabObjectServerRpc'
     Assert-True ($pickup.Parameters.Count -eq 1 -and $pickup.Parameters[0].Name -eq 'grabbedObject') 'Pickup Harmony hook no longer matches the game'
     Assert-True (@($pickup.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'stfld' -and $_.Operand.Name -eq 'heldByPlayerOnServer' }).Count -gt 0) 'Game pickup no longer marks server-held state'

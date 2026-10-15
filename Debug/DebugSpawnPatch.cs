@@ -5,6 +5,7 @@ using UnityEngine;
 using LethalCards.Cards;
 using LethalCards.Grading;
 using LethalCards.Boosters;
+using LethalCards.Binders;
 
 namespace LethalCards.Debugging;
 
@@ -13,11 +14,68 @@ public static class DebugSpawnPatch
 {
     private static bool spawnedTestPacks;
     private static bool debugBoxesSpawned;
+    private static bool debugBinderSpawned;
 
     public static void Reset()
     {
         spawnedTestPacks = false;
         debugBoxesSpawned = false;
+        debugBinderSpawned = false;
+    }
+
+    public static void SpawnDebugBinderOnShip()
+    {
+        NetworkManager manager = NetworkManager.Singleton;
+        StartOfRound round = StartOfRound.Instance;
+        if (debugBinderSpawned || manager == null || !manager.IsServer || !manager.IsListening ||
+            manager.ShutdownInProgress || round == null || round.propsContainer == null ||
+            !round.inShipPhase || GameNetworkManager.Instance == null)
+            return;
+
+        PlayerControllerB player = GameNetworkManager.Instance.localPlayerController;
+        if (player == null || !player.isPlayerControlled || !player.isInHangarShipRoom ||
+            Plugin.CardBinderItem == null || Plugin.CardBinderItem.spawnPrefab == null)
+            return;
+
+        debugBinderSpawned = true;
+        GameObject? obj = null;
+        try
+        {
+            Vector3 position = player.transform.position + player.transform.forward * 2f +
+                Vector3.up;
+            obj = Object.Instantiate(
+                Plugin.CardBinderItem.spawnPrefab,
+                position,
+                Quaternion.identity,
+                round.propsContainer);
+
+            GrabbableObject binder = obj.GetComponent<GrabbableObject>();
+            NetworkObject networkObject = obj.GetComponent<NetworkObject>();
+            if (binder == null || networkObject == null ||
+                obj.GetComponent<CardBinderBehaviour>() == null)
+                throw new System.InvalidOperationException(
+                    "Binder prefab is missing GrabbableObject, NetworkObject, or CardBinderBehaviour.");
+
+            binder.isInShipRoom = true;
+            binder.isInElevator = true;
+            binder.SetScrapValue(CardBinderBehaviour.InitialScrapValue);
+            networkObject.Spawn();
+            Plugin.Log.LogInfo(
+                $"DEBUG CARD BINDER SPAWN | Position={position} | " +
+                $"Value={CardBinderBehaviour.InitialScrapValue}");
+        }
+        catch (System.Exception exception)
+        {
+            Plugin.Log.LogError($"DEBUG CARD BINDER SPAWN FAILED | {exception}");
+            if (obj != null)
+            {
+                NetworkObject? networkObject = obj.GetComponent<NetworkObject>();
+                if (networkObject != null && networkObject.IsSpawned)
+                    networkObject.Despawn(true);
+                else
+                    Object.Destroy(obj);
+            }
+        }
     }
 
     public static void SpawnDebugBoosterBoxesOnShip()

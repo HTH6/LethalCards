@@ -19,13 +19,19 @@ public class NetworkItemConsumption : NetworkBehaviour
 
     public void ConsumeServer()
     {
+        TryConsumeServer();
+    }
+
+    public bool TryConsumeServer()
+    {
         if (!IsServer || !IsSpawned || consumed)
-            return;
+            return false;
 
         consumed = true;
         ClearInventoryClientRpc();
         ClearInventory();
         NetworkObject.Despawn(true);
+        return true;
     }
 
     [ClientRpc]

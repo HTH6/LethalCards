@@ -89,6 +89,17 @@ Each pack has a chance to be either:
 
 Contains **4 guaranteed Heavy Booster Packs**.
 
+### Card Binders
+
+Find **Card Binders** scattered throughout dungeon interiors and use them to consolidate your unwanted cards into a single valuable scrap item!
+
+- **Store Cards:** Hold any raw or graded card, look at a binder, and press **E** to add it.
+- **Combine Values:** Each stored card is consumed, and its full scrap value is added to the binder's total.
+- **Cash Out:** Sell your binder at the Company whenever you're ready to collect its accumulated value.
+- **Starting Value:** Every binder begins with a base scrap value of **10 credits**.
+
+Turn your low-value cards into one convenient, high-value scrap item!
+
 ### Grading System
 
 Take valuable cards to the **Company Building** and submit them to the grading machine.

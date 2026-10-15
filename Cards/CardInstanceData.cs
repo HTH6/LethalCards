@@ -7,6 +7,9 @@ namespace LethalCards.Cards;
 
 public class CardInstanceData : NetworkBehaviour
 {
+    [System.ThreadStatic]
+    private static bool isApplyingAuthoritativeCardValue;
+
     private TextMeshPro? gradeLabel;
     private const int DefaultScanMinRange = 1;
     private const int DefaultScanMaxRange = 13;
@@ -81,6 +84,9 @@ public class CardInstanceData : NetworkBehaviour
             UngradedValue,
             Grade
         );
+
+    internal static bool IsApplyingAuthoritativeCardValue =>
+        isApplyingAuthoritativeCardValue;
 
     // ============================================================
     // NETWORK LIFECYCLE
@@ -491,7 +497,51 @@ public class CardInstanceData : NetworkBehaviour
     {
         GrabbableObject item = GetComponent<GrabbableObject>();
         if (item != null && item.scrapValue != FinalValue)
-            item.SetScrapValue(FinalValue);
+            ApplyAuthoritativeScrapValue(item, FinalValue);
+    }
+
+    private static void ApplyAuthoritativeScrapValue(GrabbableObject item, int value)
+    {
+        bool wasApplying = isApplyingAuthoritativeCardValue;
+        isApplyingAuthoritativeCardValue = true;
+        try
+        {
+            item.SetScrapValue(value);
+        }
+        finally
+        {
+            isApplyingAuthoritativeCardValue = wasApplying;
+        }
+    }
+
+    internal void HandleExternalScrapValueChange(int requestedValue)
+    {
+        // Only the host/server may adopt an external mutation. Networked mods such
+        // as Lethal Casino run their ClientRpc on the listen-server host as well,
+        // so the authoritative instance observes the same absolute SetScrapValue.
+        if (!IsServer || BalanceConfig.LegacyCardValueBehavior || !IsSpawned)
+            return;
+
+        int clampedValue = System.Math.Max(0, requestedValue);
+        int authoritativeValue = FinalValue;
+        if (clampedValue == authoritativeValue)
+            return;
+
+        string direction = clampedValue > authoritativeValue ? "Increase" : "Decrease";
+
+        Plugin.Log.LogInfo(
+            $"CARD EXTERNAL VALUE CHANGE | CardId={CardId} | " +
+            $"OldValue={authoritativeValue} | NewValue={clampedValue} | " +
+            $"Direction={direction} | ObservedOnServer=True | Sender=ServerObserved | Accepted=True");
+
+        // This is an absolute assignment, not a delta. Repeated observation of
+        // the same external result is therefore idempotent.
+        networkFinalValue.Value = clampedValue;
+        RefreshScrapValue();
+        RefreshScanNodes();
+        Plugin.Log.LogInfo(
+            $"CARD VALUE CHANGE ACCEPTED | CardId={CardId} | " +
+            $"OldValue={authoritativeValue} | CurrentValue={clampedValue} | Direction={direction}");
     }
 
     private void RefreshScanNodes()

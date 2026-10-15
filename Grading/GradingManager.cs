@@ -29,7 +29,12 @@ public static class GradingManager
         CardInstanceData card,
         int currentDay)
     {
+        int submissionValue = card.FinalValue;
         int grade = CardGrading.RollGrade();
+        float gradeMultiplier = CardGrading.GetMultiplier(grade);
+        int finalValue = CardGrading.CalculateGradedValue(
+            submissionValue,
+            grade);
 
         GradingJob job =
             new GradingJob
@@ -41,20 +46,23 @@ public static class GradingManager
                 CardId = card.CardId,
                 Variant = card.Variant,
                 Grade = grade,
+                FinalValue = finalValue,
                 SubmittedDay = currentDay,
                 ReadyDay = InstantGradingForTesting
                     ? currentDay
                     : currentDay + GradingTurnaroundDays
             };
 
-        job.EnsureFinalValue();
         PendingJobs.Add(job);
 
         Plugin.Log.LogInfo(
             $"GRADING JOB CREATED | " +
             $"CardId={job.CardId} | " +
             $"Variant={job.Variant} | " +
-            $"ResultStored=True | " +
+            $"SubmissionValue={submissionValue} | " +
+            $"Grade={job.Grade} | " +
+            $"GradeMultiplier={gradeMultiplier:F2} | " +
+            $"FinalValue={job.FinalValue} | " +
             $"SubmittedDay={job.SubmittedDay} | " +
             $"ReadyDay={job.ReadyDay}"
         );
