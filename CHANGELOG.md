@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0
+### Added — Ship Card Display Case
+
+- Added a permanent, customizable **33-slot Card Display Case** aboard the ship.
+- Added card deposits, swaps, and withdrawals using the `E` interaction.
+- Added support for raw cards, graded slabs, and all four card variants.
+- Added automatic slot mapping for all 33 collectible card types.
+- Added synchronized multiplayer storage and display visuals.
+- Added persistent display contents across rounds and save sessions.
+- Added vanilla furniture movement support using `B`.
+- Added scannable display contents showing the total stored card value.
+- Added automatic collection clearing following a full crew wipe.
+- Improved card reconstruction, inventory synchronization, and interaction handling.
+
+### Added — Company Collection Museum
+
+- Designed a permanent **132-slot Collection Museum** located at the Company Building.
+- Created four dedicated sections for Standard, Foil, Alternate Art, and Misprint cards.
+- Added a custom museum display prefab featuring labeled sections, lighting, and individual card positions.
+- Established museum placement between the grading submission and return pedestals.
+- Added non-consuming card registration, permanent collection progression, highest-grade tracking, and multiplayer synchronization.
+- Added museum scanning to display `X / 132 Card Variants Found`.
+
 ## 1.1.0
 - Added "Card Binder" scrap item that appears in dungeon as findable scrap which allows players to insert cards to increase binder value and sell binder all as one scrap item, thus saving multiple trips back to the company window for low-value cards
 - Fixed card value modifiers when interacting with other mods such as lethal casino. Previously, card value would not change. Now it changes as expected when interacting with these mods.

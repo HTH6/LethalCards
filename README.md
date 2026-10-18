@@ -123,6 +123,48 @@ Graded cards are returned inside a collectible slab displaying information such 
 - Grade descriptor
 - Final graded value
 
+## Card Display Cases
+
+Show off your collection with two unique display systems: a customizable ship display case for storing valuable cards and a permanent Company Museum for tracking your collection progress.
+
+### Ship Card Display Case
+
+Your ship comes equipped with a **33-slot Card Display Case**, providing a dedicated place to store and showcase your favorite cards.
+
+- **Display Cards:** Hold any raw or graded card and press `E` near the display case to place it in its corresponding slot.
+- **Swap Cards:** Hold another version of an already displayed card and press `E` to exchange it with the displayed card.
+- **Retrieve Cards:** With an empty hand, look directly at a displayed card and press `E` to take it back.
+- **All Variants Supported:** Display Standard, Foil, Alternate Art, or Misprint cards, including graded slabs.
+- **Scannable Collection Value:** Scan the case to see the combined scrap value of all cards currently stored inside.
+- **Customizable Placement:** Move the display case around your ship using the standard furniture placement controls (`B`).
+- **Persistent Storage:** Cards remain displayed between rounds and across saved sessions.
+- **Multiplayer Support:** All players can interact with the same collection, with synchronized card displays and storage.
+
+**Important:** The ship display case holds one card per unique card type, regardless of variant or grade. Like ordinary ship cargo, all cards stored inside are lost during a full crew wipe.
+
+### Company Collection Museum
+
+Located at the Company Building, the **Lethal Cards Collection Museum** is a permanent showcase for your crew's collection achievements.
+
+The museum features **132 collectible slots**, representing all 33 cards across four variants:
+
+- **Standard:** 33 cards
+- **Foil:** 33 cards
+- **Alternate Art:** 33 cards
+- **Misprint:** 33 cards
+
+**Features:**
+
+- **Register Cards:** Bring cards to the museum and register them without consuming or surrendering the physical card.
+- **Permanent Progress:** Registered cards remain in the museum even after full crew wipes.
+- **Highest Grade Tracking:** Each slot permanently displays the highest grade registered for that specific card and variant.
+- **Upgrade Your Collection:** Registering a higher-graded version upgrades its museum display. Lower grades never replace higher grades.
+- **Visual Collection:** Registered cards appear in their designated positions, complete with variant artwork and graded slabs.
+- **Collection Scanner:** Scan the museum to view your progress as `X / 132 Card Variants Found`.
+- **Shared Crew Progress:** Museum registration and collection progress are synchronized across the multiplayer lobby.
+
+Unlike the ship display case, the museum is designed for permanent collection tracking rather than physical card storage. Registered cards cannot be removed from the museum, but the original cards remain yours to keep, display, or sell.
+
 ### Persistent Collection
 
 Your card collection persists between sessions.
