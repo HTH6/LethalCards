@@ -25,7 +25,10 @@ try {
         @('LethalCards.Boosters.BoosterBoxBehaviour', 'RequestOpenBoxServerRpc', '__beginSendServerRpc'),
         @('LethalCards.Binders.CardBinderBehaviour', 'StoreCardServerRpc', '__beginSendServerRpc'),
         @('LethalCards.Binders.CardBinderBehaviour', 'ApplyBinderValueClientRpc', '__beginSendClientRpc'),
-        @('LethalCards.Networking.NetworkItemConsumption', 'ClearInventoryClientRpc', '__beginSendClientRpc')
+        @('LethalCards.Networking.NetworkItemConsumption', 'ClearInventoryClientRpc', '__beginSendClientRpc'),
+        @('LethalCards.ShipDisplay.ShipCardDisplayController', 'InteractServerRpc', '__beginSendServerRpc'),
+        @('LethalCards.ShipDisplay.ShipCardDisplayController', 'AttachCardClientRpc', '__beginSendClientRpc'),
+        @('LethalCards.ShipDisplay.ShipCardDisplayController', 'InteractionResultClientRpc', '__beginSendClientRpc')
     )) {
         $type = $assembly.MainModule.GetType($spec[0])
         $rpc = $type.Methods | Where-Object Name -eq $spec[1]
@@ -33,6 +36,13 @@ try {
         Assert-True (@($rpc.Body.Instructions | Where-Object { $_.Operand.Name -eq $spec[2] }).Count -gt 0) "Unpatched RPC: $($spec[1])"
         Assert-True (@($type.Methods | Where-Object Name -like '__rpc_handler_*').Count -gt 0) "Missing receive handler: $($spec[0])"
     }
+
+    $displayController = $assembly.MainModule.GetType('LethalCards.ShipDisplay.ShipCardDisplayController')
+    $displayInitializer = $displayController.Methods | Where-Object Name -eq '__initializeVariables'
+    $displaySlots = $displayController.Fields | Where-Object Name -eq 'networkSlots'
+    Assert-True ($null -ne $displayInitializer) 'Missing display controller variable initializer'
+    Assert-True ($null -ne $displaySlots -and $displaySlots.FieldType.FullName.StartsWith('Unity.Netcode.NetworkList`1')) 'Missing display slot NetworkList'
+    Assert-True (@($displayInitializer.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'ldstr' -and $_.Operand -eq 'networkSlots' }).Count -gt 0) 'Unregistered display slot NetworkList'
 
     foreach ($typeName in @('LethalCards.Cards.CardInstanceData', 'LethalCards.Grading.GradingReturnData')) {
         $type = $assembly.MainModule.GetType($typeName)
@@ -68,10 +78,61 @@ try {
     Assert-True (@($pickup.Body.Instructions | Where-Object { $_.Operand.Name -eq 'ChangeOwnership' }).Count -gt 0) 'Game pickup no longer transfers ownership'
 
     $round = $game.MainModule.GetType('StartOfRound')
-    foreach ($methodName in @('Start', 'Update', 'OnDestroy', 'ChangeLevel')) {
+    foreach ($methodName in @('Start', 'Update', 'OnDestroy', 'ChangeLevel', 'StartGame')) {
         Assert-True (@($round.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Lifecycle hook missing or ambiguous: $methodName"
     }
+    $roundManager = $game.MainModule.GetType('RoundManager')
+    Assert-True (@($roundManager.Methods | Where-Object Name -eq 'DespawnPropsAtEndOfRound').Count -eq 1) 'Crew-wipe persistence hook is missing or ambiguous'
+    Assert-True (@($player.Methods | Where-Object Name -eq 'SwitchToItemSlot').Count -eq 1) 'Exact-slot inventory handoff method is missing or ambiguous'
+
+    # Museum uses authenticated Netcode custom messages rather than a networked
+    # scene model. Verify its persistence, synchronization, interaction, and
+    # authored-prefab integration entry points survive release trimming/builds.
+    foreach ($typeName in @(
+        'LethalCards.Museum.CompanyMuseumManager',
+        'LethalCards.Museum.CompanyMuseumSaveManager',
+        'LethalCards.Museum.CompanyMuseumNetworkSync',
+        'LethalCards.Museum.CompanyMuseumDisplayController',
+        'LethalCards.Museum.CompanyMuseumInteractionPatch',
+        'LethalCards.Museum.CompanyMuseumDisplaySpawner',
+        'LethalCards.Museum.CompanyMuseumShipDisplayIntegration'
+    )) {
+        Assert-True ($null -ne $assembly.MainModule.GetType($typeName)) "Missing museum type: $typeName"
+    }
+    $museumNetwork = $assembly.MainModule.GetType('LethalCards.Museum.CompanyMuseumNetworkSync')
+    foreach ($methodName in @('Initialize', 'EnsureSnapshot', 'BroadcastAuthoritativeSnapshot', 'RequestRegistration', 'ProcessAuthoritativeRegistration', 'Shutdown')) {
+        Assert-True (@($museumNetwork.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Missing museum network method: $methodName"
+    }
+    $museumSave = $assembly.MainModule.GetType('LethalCards.Museum.CompanyMuseumSaveManager')
+    foreach ($methodName in @('LoadForCurrentSave', 'TrySave', 'ResetLoadedSave')) {
+        Assert-True (@($museumSave.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Missing museum save method: $methodName"
+    }
+    $museumSpawner = $assembly.MainModule.GetType('LethalCards.Museum.CompanyMuseumDisplaySpawner')
+    foreach ($methodName in @('LoadAssets', 'TrySpawn', 'Reset')) {
+        Assert-True (@($museumSpawner.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Missing museum spawner method: $methodName"
+    }
+    $museumShipIntegration = $assembly.MainModule.GetType('LethalCards.Museum.CompanyMuseumShipDisplayIntegration')
+    foreach ($methodName in @('Initialize', 'Update', 'Shutdown', 'OnAuthoritativeSlotChanged')) {
+        Assert-True (@($museumShipIntegration.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Missing museum ship integration method: $methodName"
+    }
+    $museumShipInitialize = $museumShipIntegration.Methods | Where-Object Name -eq 'Initialize'
+    $museumShipShutdown = $museumShipIntegration.Methods | Where-Object Name -eq 'Shutdown'
+    $museumShipCommit = $museumShipIntegration.Methods | Where-Object Name -eq 'TryCommit'
+    Assert-True (@($museumShipInitialize.Body.Instructions | Where-Object { $_.Operand.Name -eq 'add_AuthoritativeSlotChanged' }).Count -eq 1) 'Museum does not subscribe to the authoritative ship transaction event'
+    Assert-True (@($museumShipShutdown.Body.Instructions | Where-Object { $_.Operand.Name -eq 'remove_AuthoritativeSlotChanged' }).Count -eq 1) 'Museum does not unsubscribe from the authoritative ship transaction event'
+    Assert-True (@($museumShipCommit.Body.Instructions | Where-Object { $_.Operand.Name -eq 'TryRegisterHighest' }).Count -eq 1) 'Museum ship integration does not use highest-grade registration'
+
+    $plugin = $assembly.MainModule.GetType('LethalCards.Plugin')
+    Assert-True (@($plugin.Properties | Where-Object Name -eq 'EnableDebugLogging').Count -eq 1) 'Missing centralized debug logging setting'
+    Assert-True ($null -ne $assembly.MainModule.GetType('LethalCards.ModLog')) 'Missing centralized logging facade'
+    $silentAudio = $assembly.MainModule.GetType('LethalCards.Audio.SilentItemAudio')
+    Assert-True ($null -ne $silentAudio) 'Missing silent item audio compatibility helper'
+    Assert-True (@($silentAudio.Methods | Where-Object Name -eq 'EnsureFallbacks').Count -eq 1) 'Missing silent item audio assignment method'
+    $playerDebug = $assembly.MainModule.GetType('LethalCards.Debugging.PlayerPositionDebugPatch')
+    $playerDebugPostfix = $playerDebug.Methods | Where-Object Name -eq 'Postfix'
+    Assert-True (@($playerDebugPostfix.Body.Instructions | Where-Object { $_.Operand.Name -eq 'get_EnableDebugLogging' }).Count -gt 0) 'Player position diagnostics are not gated by EnableDebugLogging'
     Write-Output "PASS: RPC rewriting, card/return variables, serialization startup, $checkedReferences Netcode references, and game hook contracts."
+    Write-Output 'PASS: Museum prefab, persistence, interaction, and custom-message synchronization contracts.'
     Write-Output 'This verifies the build and installed APIs; run the host/client checklist for gameplay validation.'
 }
 finally {

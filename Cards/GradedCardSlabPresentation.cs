@@ -100,12 +100,53 @@ internal static class GradedCardSlabPresentation
         return true;
     }
 
+    internal static bool TryCreateDisplaySlab(
+        Transform parent,
+        CardDefinition card,
+        CardVariant variant,
+        int grade,
+        out Transform cardMount)
+    {
+        cardMount = null!;
+        if (parent == null || card == null || grade <= 0 || slabPrefab == null)
+            return false;
+
+        GameObject slab = UnityEngine.Object.Instantiate(slabPrefab, parent, false);
+        slab.name = PresentationName;
+        slab.transform.localPosition = Vector3.zero;
+        slab.transform.localRotation = Quaternion.identity;
+        cardMount = FindChild(slab.transform, "CardMount")!;
+        if (cardMount == null)
+        {
+            Plugin.Log.LogWarning(
+                $"SHIP CARD DISPLAY SLAB SKIPPED | CardId={card.CardId} | Reason=CardMount missing");
+            UnityEngine.Object.Destroy(slab);
+            return false;
+        }
+
+        // Slot anchors represent the physical card root. Match the normal graded
+        // presentation path by translating the slab until CardMount sits exactly
+        // on that root, rather than treating the slab prefab origin as the slot.
+        slab.transform.position += parent.position - cardMount.position;
+        PopulateLabel(slab.transform, card, variant, grade);
+        return true;
+    }
+
     private static void PopulateLabel(
         Transform slab,
         CardInstanceData cardData,
         CardDefinition card)
     {
-        string variantText = cardData.Variant switch
+        PopulateLabel(slab, card, cardData.Variant, cardData.Grade);
+    }
+
+    private static void PopulateLabel(
+        Transform slab,
+        CardDefinition card,
+        CardVariant variant,
+        int grade)
+    {
+        string variantText = variant switch
         {
             CardVariant.Foil => "FOIL",
             CardVariant.AlternateArt => "ALTERNATE ART",
@@ -113,17 +154,17 @@ internal static class GradedCardSlabPresentation
             _ => "STANDARD"
         };
         string setNumber = $"{card.SetId}-{card.SetNumber:D3}";
-        string descriptor = GetGradeDescriptor(cardData.Grade);
+        string descriptor = GetGradeDescriptor(grade);
 
         SetText(slab, "CardNameText", card.DisplayName.ToUpperInvariant());
         SetText(slab, "SetNumberText", setNumber);
         SetText(slab, "VariantText", variantText);
-        SetText(slab, "GradeText", $"GRADE {cardData.Grade}");
+        SetText(slab, "GradeText", $"GRADE {grade}");
         SetText(slab, "GradeDescriptorText", descriptor);
 
         Transform? labelBackground = FindChild(slab, "LabelBackground");
         MeshRenderer? labelRenderer = labelBackground?.GetComponent<MeshRenderer>();
-        Material? labelMaterial = GetGradeLabelMaterial(cardData.Grade);
+        Material? labelMaterial = GetGradeLabelMaterial(grade);
         if (labelRenderer != null && labelMaterial != null)
             labelRenderer.sharedMaterial = labelMaterial;
 

@@ -203,7 +203,7 @@ public class GradingPedestalBehaviour : MonoBehaviour
             GradingReturnSpawner.TrySpawnReadyCards();
         }
 
-        Plugin.Log.LogInfo(
+        Plugin.Log.LogAlways(
             $"GRADING SUBMITTED | " +
             $"Player={player.playerUsername} | " +
             $"CardId={cardData.CardId} | " +

@@ -1,6 +1,5 @@
 ﻿using System.IO;
 using BepInEx;
-using BepInEx.Logging;
 using BepInEx.Configuration;
 using System.Collections.Generic;
 using LethalLib.Modules;
@@ -14,6 +13,9 @@ using System.Reflection;
 using LethalCards.Grading;
 using LethalCards.Networking;
 using LethalCards.Binders;
+using LethalCards.ShipDisplay;
+using LethalCards.Museum;
+using LethalCards.Audio;
 
 namespace LethalCards;
 
@@ -44,7 +46,8 @@ public class Plugin : BaseUnityPlugin
     private const float BoosterPackFloorVerticalOffset = 0.06f;
     private const float BoosterBoxFloorVerticalOffset = 0.15f;
 
-    internal static ManualLogSource Log = null!;
+    internal static ModLog Log = null!;
+    internal static bool EnableDebugLogging { get; private set; }
 
     // ============================================================
     // DEBUG ONLY
@@ -62,7 +65,7 @@ public class Plugin : BaseUnityPlugin
 
     private void Awake()
     {
-        Log = Logger;
+        Log = new ModLog(Logger);
 
         string configPath = Path.Combine(Paths.ConfigPath, "LethalCards.cfg");
         string[] legacyConfigs = Directory.GetFiles(Paths.ConfigPath, "*.LethalCards.cfg");
@@ -74,9 +77,16 @@ public class Plugin : BaseUnityPlugin
             Log.LogInfo("Copied existing Lethal Cards settings to LethalCards.cfg; the legacy file is no longer used.");
         }
         ConfigFile cardConfig = new ConfigFile(configPath, true);
+        EnableDebugLogging = cardConfig.Bind(
+            "General",
+            "EnableDebugLogging",
+            false,
+            "Enable verbose Lethal Cards diagnostics and developer-only test helpers.").Value;
         // Rewrites legacy header comments without embedding an old plugin identifier.
         cardConfig.Save();
         BalanceConfig.Load(cardConfig);
+        ShipCardDisplayConfig.Load(cardConfig);
+        CompanyMuseumDisplayConfig.Load(cardConfig);
 
         // Unity normally invokes these generated Netcode initializers.
         foreach (System.Type type in Assembly.GetExecutingAssembly().GetTypes())
@@ -86,10 +96,8 @@ public class Plugin : BaseUnityPlugin
                 method.Invoke(null, null);
         }
 
-        Log.LogInfo("=================================");
-        Log.LogInfo("LETHAL CARDS LOADED");
-        Log.LogInfo($"Version {PluginVersion}");
-        Log.LogInfo("=================================");
+        if (EnableDebugLogging)
+            Log.LogAlways("LETHAL CARDS DEBUG LOGGING ENABLED | Developer diagnostics and test spawns are active");
 
         string pluginDirectory =
             Path.GetDirectoryName(Info.Location)!;
@@ -123,6 +131,8 @@ public class Plugin : BaseUnityPlugin
         BoosterRevealAssets.Load(bundle);
         GradingPedestalSpawner.LoadAssets(bundle);
         GradedCardSlabPresentation.LoadAssets(bundle);
+        CompanyMuseumDisplaySpawner.LoadAssets(bundle);
+        ShipCardDisplaySpawner.LoadAssets(bundle);
 
         // ========================================================
         // CARD REGISTRATION
@@ -264,9 +274,12 @@ public class Plugin : BaseUnityPlugin
 
         harmony.PatchAll();
 
-        Log.LogInfo(
-            "Harmony debug patches applied."
-        );
+        Log.LogAlways(
+            $"LETHAL CARDS INITIALIZED | Version={PluginVersion} | " +
+            $"Cards={System.Linq.Enumerable.Count(CardDatabase.GetImplementedCards())}/{CardDatabase.Cards.Count} | " +
+            "Systems=Boosters,Collection,Grading,Binder,ShipDisplay,Museum");
+
+        Log.LogInfo($"SILENT ITEM AUDIO FALLBACKS | AssignedFields={SilentItemAudio.AssignmentCount}");
 
     }
 
@@ -344,6 +357,7 @@ public class Plugin : BaseUnityPlugin
         }
 
         PrepareCardPrefab(item.spawnPrefab);
+        SilentItemAudio.EnsureFallbacks(item);
         item.verticalOffset = CardFloorVerticalOffset;
         // Log.LogInfo($"FLOOR OFFSET CONFIG | Type=Card | VerticalOffset={item.verticalOffset}");
         ApplyHeldPositionCorrection(item, CardHeldPositionCorrection, "Card");
@@ -540,6 +554,7 @@ public class Plugin : BaseUnityPlugin
             return null;
         }
         SetFixedScrapValue(item, BalanceConfig.GetBoosterBoxValue(type));
+        SilentItemAudio.EnsureFallbacks(item);
         item.verticalOffset = BoosterBoxFloorVerticalOffset;
         // Log.LogInfo($"FLOOR OFFSET CONFIG | Type={(type == BoosterBoxType.Golden ? "GoldenBox" : "StandardBox")} | VerticalOffset={item.verticalOffset}");
         string boxTypeLabel = type == BoosterBoxType.Golden ? "GoldenBox" : "StandardBox";
@@ -561,6 +576,7 @@ public class Plugin : BaseUnityPlugin
         box.BoxType = type;
         if (box.itemProperties != null && box.itemProperties != item)
         {
+            SilentItemAudio.EnsureFallbacks(box.itemProperties);
             box.itemProperties.verticalOffset = BoosterBoxFloorVerticalOffset;
             ApplyHeldPositionCorrection(box.itemProperties, BoosterBoxHeldPositionCorrection, boxTypeLabel);
         }
@@ -615,6 +631,7 @@ public class Plugin : BaseUnityPlugin
         }
 
         SetFixedScrapValue(item, BalanceConfig.GetBoosterValue(packType));
+        SilentItemAudio.EnsureFallbacks(item);
         item.verticalOffset = BoosterPackFloorVerticalOffset;
         // Log.LogInfo($"FLOOR OFFSET CONFIG | Type={(packType == BoosterType.Heavy ? "HeavyPack" : "LightPack")} | VerticalOffset={item.verticalOffset}");
         string packTypeLabel = packType == BoosterType.Heavy ? "HeavyPack" : "LightPack";
@@ -664,6 +681,7 @@ public class Plugin : BaseUnityPlugin
 
         if (boosterBehaviour.itemProperties != null && boosterBehaviour.itemProperties != item)
         {
+            SilentItemAudio.EnsureFallbacks(boosterBehaviour.itemProperties);
             boosterBehaviour.itemProperties.verticalOffset = BoosterPackFloorVerticalOffset;
             ApplyHeldPositionCorrection(boosterBehaviour.itemProperties, BoosterPackHeldPositionCorrection, packTypeLabel);
         }
@@ -774,6 +792,7 @@ public class Plugin : BaseUnityPlugin
         }
 
         SetFixedScrapValue(item, CardBinderBehaviour.InitialScrapValue);
+        SilentItemAudio.EnsureFallbacks(item);
         ApplyHeldPositionCorrection(item, BinderHeldPositionCorrection, "Binder");
         ApplyHeldRotationCorrection(item, BinderHeldRotationCorrection, "Binder");
         item.saveItemVariable = true;

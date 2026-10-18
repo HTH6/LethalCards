@@ -88,6 +88,8 @@ public static class SaveIdentityManager
 
             Cards.CollectionManager.Clear();
             Cards.CollectionSaveManager.ResetLoadedSave();
+            Museum.CompanyMuseumManager.ClearRuntime();
+            Museum.CompanyMuseumSaveManager.ResetLoadedSave();
 
             /* Plugin.Log.LogInfo(
                 $"SAVE IDENTITY RUNTIME RESET | " +

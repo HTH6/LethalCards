@@ -51,7 +51,10 @@ public class NetworkItemConsumption : NetworkBehaviour
             if (player == null)
                 continue;
 
-            bool held = player.currentlyHeldObjectServer == item;
+            // The local-player reference is separate from the replicated/server reference.
+            // Clear both so a consumed deposit cannot leave a destroyed card looking held
+            // until Unity's deferred NetworkObject destruction completes.
+            bool held = player.currentlyHeldObjectServer == item || player.currentlyHeldObject == item;
             bool found = held;
             for (int slot = 0; slot < player.ItemSlots.Length; slot++)
             {
@@ -78,6 +81,8 @@ public class NetworkItemConsumption : NetworkBehaviour
             if (held)
             {
                 player.currentlyHeldObjectServer = null;
+                if (player.currentlyHeldObject == item)
+                    player.currentlyHeldObject = null;
                 player.isHoldingObject = false;
                 player.twoHanded = false;
                 player.twoHandedAnimation = false;

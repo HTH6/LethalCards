@@ -56,6 +56,15 @@ public static class GradingPedestalSpawner
         pickupPedestalRoot.activeInHierarchy &&
         returnRestAnchor != null;
 
+    internal static bool TryGetSpawnedPedestals(
+        out GameObject submissionPedestal,
+        out GameObject pickupPedestal)
+    {
+        submissionPedestal = pedestalRoot!;
+        pickupPedestal = pickupPedestalRoot!;
+        return submissionPedestal != null && pickupPedestal != null;
+    }
+
     public static void TrySpawn()
     {
         if (pedestalRoot != null)

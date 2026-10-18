@@ -24,6 +24,16 @@ public sealed class CardVariantVisuals : MonoBehaviour
         alternateArtMaterialTemplate = alternateMaterial;
     }
 
+    internal static void ApplyToDisplay(GameObject displayRoot, CardVariant variant)
+    {
+        if (displayRoot == null)
+            return;
+
+        CardVariantVisuals visuals = displayRoot.GetComponent<CardVariantVisuals>() ??
+                                     displayRoot.AddComponent<CardVariantVisuals>();
+        visuals.ApplyVariant(variant);
+    }
+
     private void Awake() => CacheOriginalState();
 
     public void ApplyVariant(CardVariant variant)

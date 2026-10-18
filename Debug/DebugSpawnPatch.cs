@@ -25,6 +25,8 @@ public static class DebugSpawnPatch
 
     public static void SpawnDebugBinderOnShip()
     {
+        if (!Plugin.EnableDebugLogging)
+            return;
         NetworkManager manager = NetworkManager.Singleton;
         StartOfRound round = StartOfRound.Instance;
         if (debugBinderSpawned || manager == null || !manager.IsServer || !manager.IsListening ||
@@ -80,6 +82,8 @@ public static class DebugSpawnPatch
 
     public static void SpawnDebugBoosterBoxesOnShip()
     {
+        if (!Plugin.EnableDebugLogging)
+            return;
         NetworkManager manager = NetworkManager.Singleton;
         StartOfRound round = StartOfRound.Instance;
         if (debugBoxesSpawned || manager == null || !manager.IsServer || !manager.IsListening ||

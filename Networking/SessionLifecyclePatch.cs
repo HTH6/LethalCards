@@ -2,6 +2,7 @@ using HarmonyLib;
 using LethalCards.Cards;
 using LethalCards.Debugging;
 using LethalCards.Grading;
+using LethalCards.Museum;
 using LethalCards.Save;
 using Unity.Netcode;
 using UnityEngine;
@@ -35,23 +36,33 @@ public static class SessionLifecyclePatch
         nextUpdate = Time.realtimeSinceStartup + 0.25f;
 
         // ==================================================
-        // DEBUG ONLY - BOOSTER BOX SHIP SPAWNS
-        // Comment this call out for normal release gameplay.
+        // DEBUG ONLY - test binder/booster-box ship spawns. These are disabled
+        // in production unless EnableDebugLogging is explicitly opted into.
         // Natural facility registration is independent.
         // ==================================================
         
-        //DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
-        //DebugSpawnPatch.SpawnDebugBinderOnShip();
+        if (Plugin.EnableDebugLogging)
+        {
+            DebugSpawnPatch.SpawnDebugBoosterBoxesOnShip();
+            DebugSpawnPatch.SpawnDebugBinderOnShip();
+        }
 
         CollectionNetworkSync.Initialize();
         GradingNetworkSync.Initialize();
+        CompanyMuseumNetworkSync.Initialize();
         if (manager.IsServer)
         {
             CollectionSaveManager.LoadForCurrentSave();
             GradingSaveManager.LoadForCurrentSave();
+            CompanyMuseumSaveManager.LoadForCurrentSave();
         }
         else
+        {
             CollectionNetworkSync.EnsureSnapshot();
+            CompanyMuseumNetworkSync.EnsureSnapshot();
+        }
+        CompanyMuseumShipDisplayIntegration.Initialize();
+        CompanyMuseumShipDisplayIntegration.Update();
 
         bool companySceneReady = !__instance.shipIsLeaving && __instance.currentLevel != null &&
             __instance.currentLevel.PlanetName.Contains("Gordion", System.StringComparison.OrdinalIgnoreCase) &&
@@ -69,6 +80,7 @@ public static class SessionLifecyclePatch
 
             // Local scenery and interaction appear as soon as the Company scene is initialized.
             GradingPedestalSpawner.TrySpawn();
+            CompanyMuseumDisplaySpawner.TrySpawn();
 
             if (manager.IsServer && GradingPedestalSpawner.IsReturnPedestalReady)
             {
@@ -97,6 +109,7 @@ public static class SessionLifecyclePatch
         else if (companyActive)
         {
             GradingReturnSpawner.Reset();
+            CompanyMuseumDisplaySpawner.Reset();
             GradingPedestalSpawner.Reset();
             companyActive = false;
             companySceneReadyTime = 0f;
@@ -109,12 +122,19 @@ public static class SessionLifecyclePatch
     {
         LethalCards.TerminalCommands.CollectionTerminalPatch.ResetContext();
         GradingReturnSpawner.Reset();
+        CompanyMuseumDisplaySpawner.Reset();
         GradingPedestalSpawner.Reset();
         CollectionNetworkSync.Shutdown();
         GradingNetworkSync.Shutdown();
+        CompanyMuseumShipDisplayIntegration.Shutdown();
+        CompanyMuseumNetworkSync.Shutdown();
         SaveIdentityManager.ResetRuntimeState();
         CollectionSaveManager.ResetLoadedSave();
         GradingSaveManager.ResetLoadedSave();
+        LethalCards.ShipDisplay.ShipCardDisplaySaveManager.ResetLoadedSave();
+        CompanyMuseumSaveManager.ResetLoadedSave();
+        CompanyMuseumManager.ClearRuntime();
+        LethalCards.ShipDisplay.ShipCardDisplayController.ResetCrewWipeGuard();
         CollectionManager.Clear();
         GradingManager.Clear();
         GradingDayManager.SetDay(0);

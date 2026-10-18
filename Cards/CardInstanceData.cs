@@ -316,7 +316,8 @@ public class CardInstanceData : NetworkBehaviour
         CardDefinition card,
         CardVariant variant,
         int grade,
-        int? finalValue = null)
+        int? finalValue = null,
+        int? ungradedValue = null)
     {
         if (card == null)
         {
@@ -352,7 +353,7 @@ public class CardInstanceData : NetworkBehaviour
             grade;
         pendingFinalValue = finalValue ?? -1;
 
-        pendingUngradedValue =
+        pendingUngradedValue = ungradedValue ??
             (int)System.Math.Round(
                 card.BaseScrapValue *
                 BalanceConfig.GetVariantValueMultiplier(variant)
