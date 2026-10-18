@@ -25,7 +25,7 @@ public class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "Hdaddy.LethalCards";
     public const string PluginName = "Lethal Cards";
-    public const string PluginVersion = "1.1.0";
+    public const string PluginVersion = "2.0.0";
 
     /* private static readonly Vector3 CardHeldPositionCorrection =
         new(0.1f, 0.05f, -0.1f); */
