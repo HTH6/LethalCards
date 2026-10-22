@@ -27,6 +27,7 @@ try {
         @('LethalCards.Binders.CardBinderBehaviour', 'ApplyBinderValueClientRpc', '__beginSendClientRpc'),
         @('LethalCards.Networking.NetworkItemConsumption', 'ClearInventoryClientRpc', '__beginSendClientRpc'),
         @('LethalCards.ShipDisplay.ShipCardDisplayController', 'InteractServerRpc', '__beginSendServerRpc'),
+        @('LethalCards.ShipDisplay.ShipCardDisplayController', 'ConfirmAttachmentServerRpc', '__beginSendServerRpc'),
         @('LethalCards.ShipDisplay.ShipCardDisplayController', 'AttachCardClientRpc', '__beginSendClientRpc'),
         @('LethalCards.ShipDisplay.ShipCardDisplayController', 'InteractionResultClientRpc', '__beginSendClientRpc')
     )) {
@@ -43,6 +44,36 @@ try {
     Assert-True ($null -ne $displayInitializer) 'Missing display controller variable initializer'
     Assert-True ($null -ne $displaySlots -and $displaySlots.FieldType.FullName.StartsWith('Unity.Netcode.NetworkList`1')) 'Missing display slot NetworkList'
     Assert-True (@($displayInitializer.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'ldstr' -and $_.Operand -eq 'networkSlots' }).Count -gt 0) 'Unregistered display slot NetworkList'
+    $displaySpawn = $displayController.Methods | Where-Object Name -eq 'TrySpawnIntoInventory'
+    Assert-True (@($displaySpawn.Body.Instructions | Where-Object { $_.Operand.Name -eq 'SpawnWithOwnership' }).Count -eq 1) 'Display reconstruction does not spawn with its final owner'
+    Assert-True (@($displaySpawn.Body.Instructions | Where-Object { $_.Operand.Name -eq 'ChangeOwnership' }).Count -eq 0) 'Display reconstruction still performs a separate ownership transfer'
+    $snapshotValidation = $displayController.Methods | Where-Object Name -eq 'TryValidateInteractionSnapshot'
+    Assert-True ($null -ne $snapshotValidation) 'Missing request-time display interaction snapshot validation'
+    Assert-True (@($snapshotValidation.Body.Instructions | Where-Object { $_.Operand.Name -eq 'get_gameplayCamera' }).Count -eq 0) 'Server snapshot validation still reads the remote gameplay camera'
+    $currentAccessValidation = $displayController.Methods | Where-Object Name -eq 'ValidateCurrentPlayerAccess'
+    Assert-True ($null -ne $currentAccessValidation) 'Missing post-settlement distance and occlusion validation'
+    Assert-True (@($currentAccessValidation.Body.Instructions | Where-Object { $_.Operand.Name -eq 'get_gameplayCamera' }).Count -eq 0) 'Post-settlement validation still reads the remote gameplay camera'
+    $occlusionValidation = $displayController.Methods | Where-Object Name -eq 'IsCabinetFirstUnobstructedHit'
+    Assert-True (@($occlusionValidation.Body.Instructions | Where-Object { $_.Operand.Name -eq 'IsColliderOwnedByPlayerInventory' }).Count -gt 0) 'Display occlusion validation does not exclude the requesting player inventory'
+    $terminalResult = $displayController.Methods | Where-Object Name -eq 'SendTerminalResult'
+    Assert-True ($null -ne $terminalResult) 'Missing exactly-once display transaction terminal result handling'
+    $applyDisplayCard = $displayController.Methods | Where-Object Name -eq 'ApplyCardToInventory'
+    Assert-True (@($applyDisplayCard.Body.Instructions | Where-Object { $_.Operand.Name -eq 'RefreshPhysicalScanNodeVisibility' }).Count -gt 0) 'Reconstructed cards do not immediately refresh physical scan-node visibility'
+    Assert-True (@($applyDisplayCard.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'stfld' -and $_.Operand.Name -eq 'propColliders' }).Count -eq 1) 'Reconstructed cards do not initialize vanilla propColliders before disabling physics'
+    $directResultSenders = @($displayController.Methods | Where-Object {
+        $_.HasBody -and @($_.Body.Instructions | Where-Object { $_.Operand.Name -eq 'SendResult' }).Count -gt 0
+    })
+    Assert-True ($directResultSenders.Count -eq 1 -and $directResultSenders[0].Name -eq 'SendTerminalResult') 'A display transaction can bypass exactly-once terminal result handling'
+    $displayInteraction = $assembly.MainModule.GetType('LethalCards.ShipDisplay.ShipCardDisplayInteractionPatch')
+    $localTargeting = $displayInteraction.Methods | Where-Object Name -eq 'TryGetTarget'
+    Assert-True (@($localTargeting.Body.Instructions | Where-Object { $_.Operand.Name -eq 'IsColliderOwnedByPlayerInventory' }).Count -gt 0) 'Local display targeting does not exclude the requesting player inventory'
+    $attachmentAck = $displayController.Methods | Where-Object Name -eq 'ConfirmAttachmentServerRpc'
+    Assert-True ($null -ne $attachmentAck) 'Missing reconstructed-card owner acknowledgment'
+    $attachmentStateMachine = $displayController.NestedTypes | Where-Object Name -like '*AttachCardWhenReady*'
+    $attachmentMoveNext = $attachmentStateMachine.Methods | Where-Object Name -eq 'MoveNext'
+    Assert-True (@($attachmentMoveNext.Body.Instructions | Where-Object { $_.Operand.Name -eq 'ValidateInventoryPostconditions' }).Count -gt 0) 'Client attachment does not validate its final inventory state'
+    Assert-True (@($attachmentMoveNext.Body.Instructions | Where-Object { $_.Operand.Name -eq 'ConfirmAttachmentServerRpc' }).Count -gt 0) 'Client attachment does not acknowledge validated completion'
+    Assert-True (@($displayController.Methods | Where-Object Name -eq 'ValidateRequestedSlotAim').Count -eq 0) 'Obsolete delayed camera-ray validation is still present'
 
     foreach ($typeName in @('LethalCards.Cards.CardInstanceData', 'LethalCards.Grading.GradingReturnData')) {
         $type = $assembly.MainModule.GetType($typeName)
@@ -54,6 +85,11 @@ try {
             Assert-True (@($initializer.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'ldstr' -and $_.Operand -eq $field.Name }).Count -gt 0) "Unregistered variable: $typeName.$($field.Name)"
         }
     }
+    $cardData = $assembly.MainModule.GetType('LethalCards.Cards.CardInstanceData')
+    $refreshScanMetadata = $cardData.Methods | Where-Object Name -eq 'RefreshScanNodes'
+    $refreshScanVisibility = $cardData.Methods | Where-Object Name -eq 'RefreshPhysicalScanNodeVisibility'
+    Assert-True ($null -ne $refreshScanVisibility) 'Missing physical card scan-node state reconciliation'
+    Assert-True (@($refreshScanMetadata.Body.Instructions | Where-Object { $_.Operand.Name -eq 'SetActive' }).Count -eq 0) 'Card metadata refresh still directly reactivates scan-node objects'
 
     $serialization = $assembly.MainModule.GetType('__GEN.NetworkVariableSerializationHelper')
     Assert-True ($null -ne $serialization) 'Missing generated variable serialization initialization'

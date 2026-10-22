@@ -15,7 +15,8 @@ internal static class ShipCardDisplayInteractionPatch
         if (!TryGetTarget(
                 __instance,
                 out ShipCardDisplayController controller,
-                out int targetSlot))
+                out int targetSlot,
+                out Ray interactionRay))
         {
             return true;
         }
@@ -31,7 +32,7 @@ internal static class ShipCardDisplayInteractionPatch
         {
             // RequestDeposit performs a second selected-slot lookup immediately
             // before constructing the NetworkObjectReference.
-            controller.RequestDeposit(__instance);
+            controller.RequestDeposit(__instance, interactionRay);
             return false;
         }
 
@@ -45,7 +46,7 @@ internal static class ShipCardDisplayInteractionPatch
         if (controller.TryGetSlotState(targetSlot, out ShipCardDisplaySlotState state) &&
             state.Occupied && HasSelectedInventoryCapacity(__instance))
         {
-            controller.RequestWithdrawal(__instance, targetSlot);
+            controller.RequestWithdrawal(__instance, targetSlot, interactionRay);
         }
 
         return false;
@@ -57,7 +58,8 @@ internal static class ShipCardDisplayInteractionPatch
         if (!TryGetTarget(
                 __instance,
                 out ShipCardDisplayController controller,
-                out int targetSlot))
+                out int targetSlot,
+                out _))
         {
             return;
         }
@@ -190,10 +192,12 @@ internal static class ShipCardDisplayInteractionPatch
     private static bool TryGetTarget(
         PlayerControllerB player,
         out ShipCardDisplayController controller,
-        out int targetSlot)
+        out int targetSlot,
+        out Ray interactionRay)
     {
         controller = null!;
         targetSlot = -1;
+        interactionRay = default;
         if (!IsGameplayContextValid(player) || player.gameplayCamera == null ||
             player.isPlayerDead || player.disableInteract)
         {
@@ -203,6 +207,7 @@ internal static class ShipCardDisplayInteractionPatch
         Ray ray = new(
             player.gameplayCamera.transform.position,
             player.gameplayCamera.transform.forward);
+        interactionRay = ray;
         RaycastHit[] hits = Physics.RaycastAll(
             ray,
             player.grabDistance,
@@ -217,7 +222,11 @@ internal static class ShipCardDisplayInteractionPatch
         {
             Collider? collider = hit.collider;
             if (collider == null ||
-                collider.transform.IsChildOf(player.transform))
+                collider.transform.IsChildOf(player.transform) ||
+                ShipCardDisplayController.IsColliderOwnedByPlayerInventory(
+                    collider,
+                    player,
+                    out _))
             {
                 continue;
             }

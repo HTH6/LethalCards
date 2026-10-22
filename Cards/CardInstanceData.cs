@@ -41,6 +41,7 @@ public class CardInstanceData : NetworkBehaviour
     private readonly NetworkVariable<Vector3> networkShipLocalPosition = new();
     private readonly NetworkVariable<Quaternion> networkShipLocalRotation = new();
     private int pendingFinalValue = -1;
+    private bool? scanNodesVisible;
 
     // ============================================================
     // PENDING INITIALIZATION
@@ -491,7 +492,10 @@ public class CardInstanceData : NetworkBehaviour
         // Vanilla spawn/load scrap synchronization can run after OnNetworkSpawn.
         // Keep the physical value consistent with the server-owned metadata.
         if (IsSpawned)
+        {
             RefreshScrapValue();
+            RefreshPhysicalScanNodeVisibility();
+        }
     }
 
     private void RefreshScrapValue()
@@ -556,8 +560,6 @@ public class CardInstanceData : NetworkBehaviour
 
         foreach (ScanNodeProperties scanNode in GetComponentsInChildren<ScanNodeProperties>(true))
         {
-            scanNode.gameObject.SetActive(true);
-            scanNode.enabled = true;
             if (scanNodeLayer >= 0)
                 scanNode.gameObject.layer = scanNodeLayer;
             if (scanNode.minRange <= 0)
@@ -567,6 +569,41 @@ public class CardInstanceData : NetworkBehaviour
             scanNode.headerText = displayName;
             scanNode.subText = $"Value: ${FinalValue}";
             scanNode.scrapValue = FinalValue;
+        }
+
+        RefreshPhysicalScanNodeVisibility(true);
+    }
+
+    /// <summary>
+    /// Keeps metadata refreshes from reviving the scanner collider on a card
+    /// which is held or pocketed. Reconstructed display cards are attached
+    /// before their first Start, so they cannot rely on vanilla's earlier
+    /// EnablePhysics(false) call having discovered the ScanNode collider.
+    /// </summary>
+    internal void RefreshPhysicalScanNodeVisibility(bool force = false)
+    {
+        GrabbableObject? item = GetComponent<GrabbableObject>();
+        bool shouldBeVisible = item != null &&
+                               !item.isHeld &&
+                               !item.isPocketed &&
+                               !item.heldByPlayerOnServer &&
+                               item.playerHeldBy == null;
+        if (!force && scanNodesVisible == shouldBeVisible)
+            return;
+
+        scanNodesVisible = shouldBeVisible;
+        foreach (ScanNodeProperties scanNode in
+                 GetComponentsInChildren<ScanNodeProperties>(true))
+        {
+            scanNode.enabled = shouldBeVisible;
+            foreach (Collider scanCollider in
+                     scanNode.GetComponents<Collider>())
+            {
+                scanCollider.enabled = shouldBeVisible;
+            }
+
+            if (scanNode.gameObject.activeSelf != shouldBeVisible)
+                scanNode.gameObject.SetActive(shouldBeVisible);
         }
     }
 

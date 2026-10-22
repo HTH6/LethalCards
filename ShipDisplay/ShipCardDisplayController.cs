@@ -16,10 +16,14 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
 {
     private const float InteractionDistancePadding = 1f;
     private const float AttachRetryTimeout = 2f;
+    private const float AttachmentResponseTimeout = 2.5f;
+    private const int MaximumAttachmentAttempts = 2;
     private const float HeldStateSettleTimeout = 0.6f;
-    private const float LocalRequestTimeout = 2f;
+    private const float LocalRequestTimeout = 7f;
     private const float InteractionDebounce = 0.12f;
     private const float DiagnosticRateLimit = 2f;
+    private const float MaximumSnapshotOriginOffset = 1.25f;
+    private const int InteractionCollisionMask = ~0;
     private static readonly MethodInfo? SwitchToItemSlotMethod =
         AccessTools.Method(
             typeof(PlayerControllerB),
@@ -34,12 +38,18 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         new Transform?[ShipCardDisplaySaveManager.SlotCount];
     private readonly GameObject?[] slotVisuals =
         new GameObject?[ShipCardDisplaySaveManager.SlotCount];
+    private readonly Dictionary<ulong, PendingAttachment> pendingAttachments = new();
+    private readonly HashSet<ulong> activeAttachmentCoroutines = new();
+    private readonly HashSet<ulong> terminalTransactions = new();
 
     private bool transactionInProgress;
+    private ulong activeTransactionId;
+    private ulong activeTransactionClientId;
     private bool localInteractionPending;
     private float localInteractionPendingUntil;
     private float nextLocalInteractionTime;
     private ScanNodeProperties? aggregateScanNode;
+    private ulong nextTransactionId = 1;
     private static bool crewWipeHandledThisRound;
     private static readonly HashSet<ShipCardDisplayController> SpawnedControllers = new();
     private static readonly Dictionary<string, float> LastDiagnosticTimes = new();
@@ -73,6 +83,29 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
     {
         SpawnedControllers.Remove(this);
         networkSlots.OnListChanged -= OnSlotListChanged;
+        if (activeTransactionId != 0)
+        {
+            SendTerminalResult(
+                activeTransactionClientId,
+                activeTransactionId,
+                InteractionResult.Failed,
+                "Canceled",
+                "Reason=ControllerDespawned",
+                false);
+        }
+        foreach (PendingAttachment pending in pendingAttachments.Values)
+        {
+            SendTerminalResult(
+                pending.ClientId,
+                pending.TransactionId,
+                InteractionResult.AttachmentFailed,
+                "Canceled",
+                "Reason=ControllerDespawnedDuringAttachment",
+                false);
+        }
+        pendingAttachments.Clear();
+        activeAttachmentCoroutines.Clear();
+        localInteractionPending = false;
         ClearVisuals();
         base.OnNetworkDespawn();
     }
@@ -103,7 +136,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         return false;
     }
 
-    internal void RequestDeposit(PlayerControllerB player)
+    internal void RequestDeposit(PlayerControllerB player, Ray interactionRay)
     {
         // Resolve the selected slot again at the instant the request is built.
         // PlayerControllerB.currentlyHeldObject is not refreshed by vanilla when
@@ -122,15 +155,25 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         InteractServerRpc(
             true,
             -1,
-            new NetworkObjectReference(cardNetworkObject));
+            new NetworkObjectReference(cardNetworkObject),
+            transform.InverseTransformPoint(interactionRay.origin),
+            transform.InverseTransformDirection(interactionRay.direction).normalized);
     }
 
-    internal void RequestWithdrawal(PlayerControllerB player, int slotIndex)
+    internal void RequestWithdrawal(
+        PlayerControllerB player,
+        int slotIndex,
+        Ray interactionRay)
     {
         if (!IsSpawned || player == null || !TryBeginLocalInteraction())
             return;
 
-        InteractServerRpc(false, slotIndex, default);
+        InteractServerRpc(
+            false,
+            slotIndex,
+            default,
+            transform.InverseTransformPoint(interactionRay.origin),
+            transform.InverseTransformDirection(interactionRay.direction).normalized);
     }
 
     [ServerRpc(RequireOwnership = false)]
@@ -138,35 +181,99 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         bool isDeposit,
         int requestedSlot,
         NetworkObjectReference requestedCard,
+        Vector3 localRayOrigin,
+        Vector3 localRayDirection,
         ServerRpcParams rpcParams = default)
     {
         ulong senderClientId = rpcParams.Receive.SenderClientId;
+        ulong transactionId = nextTransactionId++;
+        LogTransaction(
+            transactionId,
+            senderClientId,
+            isDeposit ? "Deposit" : "Withdraw",
+            "Received",
+            $"RequestedDisplaySlot={requestedSlot + 1} | " +
+            $"RequestedObject={requestedCard.NetworkObjectId} | " +
+            $"LocalRayOrigin={localRayOrigin} | LocalRayDirection={localRayDirection}");
         if (transactionInProgress || !IsSpawned)
         {
-            SendResult(senderClientId, InteractionResult.Busy);
+            SendTerminalResult(
+                senderClientId,
+                transactionId,
+                InteractionResult.Busy,
+                "Rejected",
+                transactionInProgress ? "Reason=Busy" : "Reason=ControllerNotSpawned");
             return;
         }
 
         transactionInProgress = true;
+        activeTransactionId = transactionId;
+        activeTransactionClientId = senderClientId;
         StartCoroutine(ProcessInteraction(
             senderClientId,
+            transactionId,
             isDeposit,
             requestedSlot,
-            requestedCard));
+            requestedCard,
+            localRayOrigin,
+            localRayDirection));
     }
 
     private IEnumerator ProcessInteraction(
         ulong senderClientId,
+        ulong transactionId,
         bool isDeposit,
         int requestedSlot,
-        NetworkObjectReference requestedCard)
+        NetworkObjectReference requestedCard,
+        Vector3 localRayOrigin,
+        Vector3 localRayDirection)
     {
         try
         {
-            if (!TryResolvePlayer(senderClientId, out PlayerControllerB player) ||
-                !ValidatePlayerAndDistance(player))
+            if (!TryResolvePlayer(senderClientId, out PlayerControllerB player))
             {
-                Reject(senderClientId, "InvalidPlayerOrDistance");
+                Reject(senderClientId, transactionId, "PlayerNotFound");
+                yield break;
+            }
+
+            LogTransaction(
+                transactionId,
+                senderClientId,
+                isDeposit ? "Deposit" : "Withdraw",
+                "PlayerResolved",
+                $"SelectedInventorySlot={player.currentItemSlot} | " +
+                $"ServerHeld={(player.currentlyHeldObjectServer == null ? "none" : player.currentlyHeldObjectServer.NetworkObjectId.ToString())}");
+
+            if (!ValidatePlayerState(player, out string playerFailure))
+            {
+                Reject(senderClientId, transactionId, playerFailure);
+                yield break;
+            }
+
+            if (!TryValidateInteractionSnapshot(
+                    player,
+                    localRayOrigin,
+                    localRayDirection,
+                    transactionId,
+                    out int snapshotSlot,
+                    out string snapshotFailure,
+                    out string snapshotDetails))
+            {
+                Reject(
+                    senderClientId,
+                    transactionId,
+                    snapshotFailure,
+                    snapshotDetails);
+                yield break;
+            }
+
+            if (!isDeposit && snapshotSlot != requestedSlot)
+            {
+                Reject(
+                    senderClientId,
+                    transactionId,
+                    "InvalidSlotTarget",
+                    $"RequestedSlot={requestedSlot + 1} | SnapshotSlot={snapshotSlot + 1}");
                 yield break;
             }
 
@@ -183,7 +290,40 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                     yield return null;
                 }
 
-                TryDeposit(player, requestedCard, senderClientId);
+                if (!IsHeldCardAuthoritativelyReady(player, requestedCard))
+                {
+                    if (HasRequestedCardSelectionChanged(player, requestedCard))
+                    {
+                        CancelChangedInteraction(
+                            senderClientId,
+                            transactionId,
+                            "RequestedHeldCardNoLongerSelected");
+                    }
+                    else
+                    {
+                        RejectRetryable(
+                            senderClientId,
+                            transactionId,
+                            "HeldCardSynchronizationTimeout");
+                    }
+                    yield break;
+                }
+
+                if (!ValidateCurrentPlayerAccess(
+                        player,
+                        transactionId,
+                        out string accessFailure,
+                        out string accessDetails))
+                {
+                    Reject(
+                        senderClientId,
+                        transactionId,
+                        accessFailure,
+                        accessDetails);
+                    yield break;
+                }
+
+                TryDeposit(player, requestedCard, senderClientId, transactionId);
             }
             else
             {
@@ -194,25 +334,77 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                     yield return null;
                 }
 
-                TryWithdraw(player, requestedSlot, senderClientId);
+                if (!IsEmptySelectedSlotAuthoritativelyReady(player))
+                {
+                    if (HasSettledNonEmptySelection(player))
+                    {
+                        CancelChangedInteraction(
+                            senderClientId,
+                            transactionId,
+                            "SelectedInventorySlotNoLongerEmpty");
+                    }
+                    else
+                    {
+                        RejectRetryable(
+                            senderClientId,
+                            transactionId,
+                            "InventorySynchronizationTimeout");
+                    }
+                    yield break;
+                }
+
+                if (!ValidateCurrentPlayerAccess(
+                        player,
+                        transactionId,
+                        out string accessFailure,
+                        out string accessDetails))
+                {
+                    Reject(
+                        senderClientId,
+                        transactionId,
+                        accessFailure,
+                        accessDetails);
+                    yield break;
+                }
+
+                TryWithdraw(player, requestedSlot, senderClientId, transactionId);
             }
         }
         finally
         {
             transactionInProgress = false;
+            if (activeTransactionId == transactionId)
+            {
+                activeTransactionId = 0;
+                activeTransactionClientId = 0;
+            }
+            if (!terminalTransactions.Contains(transactionId) &&
+                !pendingAttachments.ContainsKey(transactionId))
+            {
+                Plugin.Log.LogError(
+                    $"SHIP CARD DISPLAY TRANSACTION ENDED WITHOUT RESULT | " +
+                    $"Transaction={transactionId} | Client={senderClientId}");
+                SendTerminalResult(
+                    senderClientId,
+                    transactionId,
+                    InteractionResult.Failed,
+                    "Failed",
+                    "Reason=UnexpectedCoroutineTermination");
+            }
         }
     }
 
     private void TryDeposit(
         PlayerControllerB player,
         NetworkObjectReference requestedCard,
-        ulong senderClientId)
+        ulong senderClientId,
+        ulong transactionId)
     {
         NetworkManager? manager = NetworkManager.Singleton;
         if (manager == null ||
             !requestedCard.TryGet(out NetworkObject cardNetworkObject, manager))
         {
-            Reject(senderClientId, "InvalidCardReference");
+            Reject(senderClientId, transactionId, "InvalidCardReference");
             return;
         }
 
@@ -231,6 +423,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         {
             Reject(
                 senderClientId,
+                transactionId,
                 "InvalidHeldCard",
                 Plugin.EnableDebugLogging
                     ? BuildHeldCardDiagnostic(
@@ -250,6 +443,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         {
             Reject(
                 senderClientId,
+                transactionId,
                 "HeldCardSlotMismatch",
                 Plugin.EnableDebugLogging
                     ? BuildHeldCardDiagnostic(
@@ -271,7 +465,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                 : null;
         if (outgoing != null && !CanReconstruct(outgoing))
         {
-            Reject(senderClientId, "StoredCardPrefabUnavailable");
+            Reject(senderClientId, transactionId, "StoredCardPrefabUnavailable");
             return;
         }
 
@@ -284,19 +478,29 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
 
         if (!consumption.TryConsumeServer())
         {
-            Reject(senderClientId, "CardConsumptionFailed");
+            Reject(senderClientId, transactionId, "CardConsumptionFailed");
             return;
         }
 
         if (!ShipCardDisplaySaveManager.TryCommitSlot(displaySlot, incoming))
         {
             RestoreIncomingAfterFailure(player, inventorySlot, incoming);
-            Reject(senderClientId, "PersistenceFailed");
+            Reject(senderClientId, transactionId, "PersistenceFailed");
             return;
         }
 
+        bool awaitingOwnerAttachment = false;
+        NetworkObject? reconstructedObject = null;
         if (outgoing != null &&
-            !TrySpawnIntoInventory(player, inventorySlot, outgoing, out _))
+            !TrySpawnIntoInventory(
+                player,
+                inventorySlot,
+                outgoing,
+                transactionId,
+                "Swap",
+                true,
+                out reconstructedObject,
+                out awaitingOwnerAttachment))
         {
             bool rollbackSaved =
                 ShipCardDisplaySaveManager.TryCommitSlot(displaySlot, outgoing);
@@ -304,11 +508,19 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             Plugin.Log.LogError(
                 $"SHIP CARD DISPLAY SWAP ROLLED BACK | Slot={displaySlot + 1} | " +
                 $"PersistenceRollback={rollbackSaved}");
-            Reject(senderClientId, "CardReconstructionFailed");
+            Reject(senderClientId, transactionId, "CardReconstructionFailed");
             return;
         }
 
         ApplyNetworkSlot(displaySlot, incoming);
+        LogTransaction(
+            transactionId,
+            senderClientId,
+            outgoing == null ? "Deposit" : "Swap",
+            "Committed",
+            $"DisplaySlot={displaySlot + 1} | IncomingObject={cardNetworkObject.NetworkObjectId} | " +
+            $"OutgoingObject={(reconstructedObject == null ? "none" : reconstructedObject.NetworkObjectId.ToString())} | " +
+            $"AwaitingOwnerAttachment={awaitingOwnerAttachment}");
         Plugin.Log.LogInfo(
             $"SHIP CARD DISPLAY {(outgoing == null ? "DEPOSIT" : "SWAP")} | " +
             $"Player={player.playerUsername} | Slot={displaySlot + 1} | " +
@@ -316,20 +528,21 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             (outgoing == null
                 ? string.Empty
                 : $" | Outgoing={outgoing.CardId}/{outgoing.Variant}/Grade{outgoing.Grade}/Value{outgoing.FinalValue}"));
-        SendResult(senderClientId, InteractionResult.Success);
+        if (!awaitingOwnerAttachment)
+            CompleteTransaction(senderClientId, transactionId);
     }
 
     private void TryWithdraw(
         PlayerControllerB player,
         int requestedSlot,
-        ulong senderClientId)
+        ulong senderClientId,
+        ulong transactionId)
     {
         if (requestedSlot < 0 ||
             requestedSlot >= ShipCardDisplaySaveManager.SlotCount ||
-            requestedSlot >= networkSlots.Count ||
-            !ValidateRequestedSlotAim(player, requestedSlot))
+            requestedSlot >= networkSlots.Count)
         {
-            Reject(senderClientId, "InvalidSlotTarget");
+            Reject(senderClientId, transactionId, "InvalidSlotTarget");
             return;
         }
 
@@ -337,7 +550,12 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             networkSlots[requestedSlot].ToStored();
         if (storedCard == null)
         {
-            SendResult(senderClientId, InteractionResult.AlreadyEmpty);
+            SendTerminalResult(
+                senderClientId,
+                transactionId,
+                InteractionResult.AlreadyEmpty,
+                "Rejected",
+                "Reason=AlreadyEmpty");
             return;
         }
 
@@ -346,49 +564,76 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             player.currentItemSlot >= player.ItemSlots.Length ||
             player.ItemSlots[player.currentItemSlot] != null)
         {
-            SendResult(senderClientId, InteractionResult.InventoryFull);
+            SendTerminalResult(
+                senderClientId,
+                transactionId,
+                InteractionResult.InventoryFull,
+                "Rejected",
+                "Reason=InventoryFull");
             return;
         }
 
         if (!CanReconstruct(storedCard))
         {
-            Reject(senderClientId, "StoredCardPrefabUnavailable");
+            Reject(senderClientId, transactionId, "StoredCardPrefabUnavailable");
             return;
         }
 
         int inventorySlot = player.currentItemSlot;
         if (!ShipCardDisplaySaveManager.TryCommitSlot(requestedSlot, null))
         {
-            Reject(senderClientId, "PersistenceFailed");
+            Reject(senderClientId, transactionId, "PersistenceFailed");
             return;
         }
 
-        if (!TrySpawnIntoInventory(player, inventorySlot, storedCard, out _))
+        if (!TrySpawnIntoInventory(
+                player,
+                inventorySlot,
+                storedCard,
+                transactionId,
+                "Withdraw",
+                true,
+                out NetworkObject? reconstructedObject,
+                out bool awaitingOwnerAttachment))
         {
             bool rollbackSaved =
                 ShipCardDisplaySaveManager.TryCommitSlot(requestedSlot, storedCard);
             Plugin.Log.LogError(
                 $"SHIP CARD DISPLAY WITHDRAW ROLLED BACK | Slot={requestedSlot + 1} | " +
                 $"PersistenceRollback={rollbackSaved}");
-            Reject(senderClientId, "CardReconstructionFailed");
+            Reject(senderClientId, transactionId, "CardReconstructionFailed");
             return;
         }
 
         ApplyNetworkSlot(requestedSlot, null);
+        LogTransaction(
+            transactionId,
+            senderClientId,
+            "Withdraw",
+            "Committed",
+            $"DisplaySlot={requestedSlot + 1} | " +
+            $"OutgoingObject={reconstructedObject?.NetworkObjectId.ToString() ?? "none"} | " +
+            $"AwaitingOwnerAttachment={awaitingOwnerAttachment}");
         Plugin.Log.LogInfo(
             $"SHIP CARD DISPLAY WITHDRAW | Player={player.playerUsername} | " +
             $"Slot={requestedSlot + 1} | Card={storedCard.CardId}/{storedCard.Variant}/" +
             $"Grade{storedCard.Grade}/Value{storedCard.FinalValue}");
-        SendResult(senderClientId, InteractionResult.Success);
+        if (!awaitingOwnerAttachment)
+            CompleteTransaction(senderClientId, transactionId);
     }
 
     private bool TrySpawnIntoInventory(
         PlayerControllerB player,
         int inventorySlot,
         ShipCardDisplayStoredCard storedCard,
-        out NetworkObject? spawnedNetworkObject)
+        ulong transactionId,
+        string action,
+        bool trackOwnerAttachment,
+        out NetworkObject? spawnedNetworkObject,
+        out bool awaitingOwnerAttachment)
     {
         spawnedNetworkObject = null;
+        awaitingOwnerAttachment = false;
         CardDefinition? definition = CardDatabase.GetById(storedCard.CardId);
         GameObject? prefab = definition?.ItemAsset?.spawnPrefab;
         if (definition == null || prefab == null || StartOfRound.Instance == null)
@@ -417,8 +662,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
 
         try
         {
-            networkObject.Spawn();
-            networkObject.ChangeOwnership(player.actualClientId);
+            networkObject.SpawnWithOwnership(player.actualClientId);
             if (!ApplyCardToInventory(player, inventorySlot, card))
             {
                 networkObject.Despawn(true);
@@ -426,10 +670,28 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             }
 
             spawnedNetworkObject = networkObject;
-            AttachCardClientRpc(
-                player.actualClientId,
-                inventorySlot,
-                new NetworkObjectReference(networkObject));
+            bool remoteOwner = NetworkManager.Singleton != null &&
+                               player.actualClientId != NetworkManager.ServerClientId;
+            if (trackOwnerAttachment && remoteOwner)
+            {
+                PendingAttachment pending = new(
+                    transactionId,
+                    player.actualClientId,
+                    inventorySlot,
+                    networkObject.NetworkObjectId,
+                    action);
+                pendingAttachments[transactionId] = pending;
+                awaitingOwnerAttachment = true;
+                SendAttachmentAttempt(pending);
+            }
+            else
+            {
+                AttachCardClientRpc(
+                    transactionId,
+                    player.actualClientId,
+                    inventorySlot,
+                    new NetworkObjectReference(networkObject));
+            }
             return true;
         }
         catch (Exception exception)
@@ -446,6 +708,7 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
 
     [ClientRpc]
     private void AttachCardClientRpc(
+        ulong transactionId,
         ulong playerClientId,
         int inventorySlot,
         NetworkObjectReference cardReference)
@@ -455,18 +718,25 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         if (IsServer)
             return;
 
+        if (transactionId != 0 &&
+            !activeAttachmentCoroutines.Add(transactionId))
+            return;
+
         StartCoroutine(AttachCardWhenReady(
+            transactionId,
             playerClientId,
             inventorySlot,
             cardReference));
     }
 
     private IEnumerator AttachCardWhenReady(
+        ulong transactionId,
         ulong playerClientId,
         int inventorySlot,
         NetworkObjectReference cardReference)
     {
         float deadline = Time.realtimeSinceStartup + AttachRetryTimeout;
+        string terminalReason = "PrerequisitesNotReady";
         while (Time.realtimeSinceStartup < deadline)
         {
             if (TryResolvePlayer(playerClientId, out PlayerControllerB player) &&
@@ -480,17 +750,65 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                 if (card != null && ownershipReady &&
                     (existing == null || existing == card))
                 {
-                    ApplyCardToInventory(player, inventorySlot, card);
-                    yield break;
+                    bool applied = ApplyCardToInventory(player, inventorySlot, card);
+                    bool postconditionsValid = applied &&
+                        ValidateInventoryPostconditions(
+                            player,
+                            inventorySlot,
+                            card,
+                            out terminalReason);
+                    if (postconditionsValid)
+                    {
+                        if (transactionId != 0)
+                            activeAttachmentCoroutines.Remove(transactionId);
+                        LogTransaction(
+                            transactionId,
+                            playerClientId,
+                            "Reconstruction",
+                            "OwnerAttached",
+                            $"NetworkObject={networkObject.NetworkObjectId} | Slot={inventorySlot} | " +
+                            $"Equipped={player.currentItemSlot == inventorySlot}");
+                        if (player.IsOwner && transactionId != 0)
+                            ConfirmAttachmentServerRpc(
+                                transactionId,
+                                networkObject.NetworkObjectId,
+                                true);
+                        yield break;
+                    }
+
+                    if (!applied)
+                        terminalReason = "ApplyCardToInventoryReturnedFalse";
                 }
+                else if (!ownershipReady)
+                    terminalReason = "OwnershipNotReady";
+                else if (existing != null && existing != card)
+                    terminalReason = "IntendedSlotOccupied";
             }
 
             yield return null;
         }
 
-        Plugin.Log.LogWarning(
+        if (transactionId != 0)
+            activeAttachmentCoroutines.Remove(transactionId);
+        bool ownerClient = TryResolvePlayer(
+            playerClientId,
+            out PlayerControllerB owner) && owner.IsOwner;
+        string timeoutMessage =
             $"SHIP CARD DISPLAY INVENTORY ATTACH TIMED OUT | " +
-            $"PlayerClientId={playerClientId} | Slot={inventorySlot}");
+            $"Transaction={transactionId} | PlayerClientId={playerClientId} | " +
+            $"Slot={inventorySlot} | OwnerClient={ownerClient} | Reason={terminalReason}" +
+            BuildAttachmentDiagnostic(playerClientId, inventorySlot, cardReference);
+        if (ownerClient)
+            Plugin.Log.LogWarning(timeoutMessage);
+        else
+            Plugin.Log.LogInfo(timeoutMessage);
+        if (transactionId != 0 && ownerClient)
+        {
+            ConfirmAttachmentServerRpc(
+                transactionId,
+                cardReference.NetworkObjectId,
+                false);
+        }
     }
 
     private static bool ApplyCardToInventory(
@@ -508,7 +826,8 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         if (existing != null && existing != card)
             return false;
 
-        bool alreadyInInventory = FindInventorySlot(player, card) >= 0;
+        int existingInventorySlot = FindInventorySlot(player, card);
+        bool alreadyInInventory = existingInventorySlot >= 0;
         if (SwitchToItemSlotMethod == null)
         {
             Plugin.Log.LogError(
@@ -517,11 +836,36 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             return false;
         }
 
+        bool shouldEquip = player.currentItemSlot == inventorySlot;
         try
         {
-            SwitchToItemSlotMethod.Invoke(
-                player,
-                new object[] { inventorySlot, card });
+            if (existingInventorySlot >= 0 && existingInventorySlot != inventorySlot)
+            {
+                player.ItemSlots[existingInventorySlot] = null;
+                if (player.IsOwner && HUDManager.Instance != null &&
+                    existingInventorySlot < HUDManager.Instance.itemSlotIcons.Length)
+                {
+                    HUDManager.Instance.itemSlotIcons[existingInventorySlot].enabled = false;
+                }
+            }
+
+            if (shouldEquip)
+            {
+                SwitchToItemSlotMethod.Invoke(
+                    player,
+                    new object[] { inventorySlot, card });
+            }
+            else
+            {
+                player.ItemSlots[inventorySlot] = card;
+                if (player.IsOwner && HUDManager.Instance != null &&
+                    inventorySlot < HUDManager.Instance.itemSlotIcons.Length)
+                {
+                    HUDManager.Instance.itemSlotIcons[inventorySlot].sprite =
+                        card.itemProperties.itemIcon;
+                    HUDManager.Instance.itemSlotIcons[inventorySlot].enabled = true;
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -529,31 +873,50 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                 $"SHIP CARD DISPLAY INVENTORY ATTACH FAILED | {exception}");
             return false;
         }
+        // Spawned reconstruction is attached before Unity invokes Start().
+        // Mirror GrabbableObject.Start's collider discovery so EnablePhysics
+        // can disable the physical and ScanNode colliders immediately.
+        if (card.propColliders == null || card.propColliders.Length == 0)
+            card.propColliders = card.gameObject.GetComponentsInChildren<Collider>();
         card.EnablePhysics(false);
         card.isHeld = true;
         card.heldByPlayerOnServer = true;
         card.hasHitGround = false;
         card.isInFactory = player.isInsideFactory;
-        card.isPocketed = false;
+        card.isPocketed = !shouldEquip;
         card.deactivated = false;
         card.isHeldByEnemy = false;
         card.playerHeldBy = player;
         card.parentObject = player.IsOwner
             ? player.localItemHolder
             : player.serverItemHolder;
-        player.currentlyHeldObjectServer = card;
-        if (player.IsOwner)
+        if (shouldEquip)
         {
-            player.currentlyHeldObject = card;
-            card.GrabItemOnClient();
+            player.currentlyHeldObjectServer = card;
+            if (player.IsOwner)
+            {
+                player.currentlyHeldObject = card;
+                card.GrabItemOnClient();
+            }
+            card.EnableItemMeshes(true);
+            player.isHoldingObject = true;
+            player.twoHanded = card.itemProperties.twoHanded;
+            player.twoHandedAnimation = card.itemProperties.twoHandedAnimation;
         }
-        player.isHoldingObject = true;
-        player.twoHanded = card.itemProperties.twoHanded;
-        player.twoHandedAnimation = card.itemProperties.twoHandedAnimation;
+        else
+        {
+            if (player.currentlyHeldObjectServer == card)
+                player.currentlyHeldObjectServer = null;
+            if (player.currentlyHeldObject == card)
+                player.currentlyHeldObject = null;
+            card.EnableItemMeshes(false);
+        }
         player.SetItemInElevator(
             player.isInHangarShipRoom,
             player.isInElevator,
             card);
+        card.GetComponent<CardInstanceData>()?
+            .RefreshPhysicalScanNodeVisibility(true);
 
         if (!alreadyInInventory)
         {
@@ -568,17 +931,343 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         return true;
     }
 
+    private static bool ValidateInventoryPostconditions(
+        PlayerControllerB player,
+        int inventorySlot,
+        GrabbableObject card,
+        out string failure)
+    {
+        failure = string.Empty;
+        if (player.ItemSlots[inventorySlot] != card)
+        {
+            failure = "InventorySlotMismatch";
+            return false;
+        }
+
+        int matchingSlots = 0;
+        foreach (GrabbableObject? item in player.ItemSlots)
+            if (item == card)
+                matchingSlots++;
+        if (matchingSlots != 1)
+        {
+            failure = "DuplicateInventoryReference";
+            return false;
+        }
+
+        if (card.playerHeldBy != player || card.parentObject == null)
+        {
+            failure = "HolderReferenceMismatch";
+            return false;
+        }
+
+        Vector3 localScale = card.transform.localScale;
+        Vector3 lossyScale = card.transform.lossyScale;
+        if (!IsFinite(localScale) || !IsFinite(lossyScale) ||
+            localScale.sqrMagnitude < 0.000001f ||
+            lossyScale.sqrMagnitude < 0.000001f)
+        {
+            failure = "InvalidTransformScale";
+            return false;
+        }
+
+        bool shouldBeEquipped = player.currentItemSlot == inventorySlot;
+        if (shouldBeEquipped)
+        {
+            if (player.currentlyHeldObjectServer != card ||
+                (player.IsOwner && player.currentlyHeldObject != card) ||
+                !card.isHeld || card.isPocketed ||
+                !HasVisiblePhysicalRenderer(card))
+            {
+                failure = "EquippedPresentationMismatch";
+                return false;
+            }
+        }
+        else if (!card.isPocketed ||
+                 player.currentlyHeldObjectServer == card ||
+                 player.currentlyHeldObject == card)
+        {
+            failure = "PocketedPresentationMismatch";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasVisiblePhysicalRenderer(GrabbableObject card)
+    {
+        foreach (Renderer renderer in card.GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer == null || renderer.GetComponentInParent<ScanNodeProperties>() != null)
+                continue;
+            if (renderer.gameObject.activeInHierarchy && renderer.enabled)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string BuildAttachmentDiagnostic(
+        ulong playerClientId,
+        int inventorySlot,
+        NetworkObjectReference cardReference)
+    {
+        if (!TryResolvePlayer(playerClientId, out PlayerControllerB player))
+            return " | Player=Unresolved";
+
+        string intendedSlot = inventorySlot >= 0 &&
+                              inventorySlot < player.ItemSlots.Length &&
+                              player.ItemSlots[inventorySlot] != null
+            ? player.ItemSlots[inventorySlot].NetworkObjectId.ToString()
+            : "none";
+        string currentHeld = player.currentlyHeldObject != null
+            ? player.currentlyHeldObject.NetworkObjectId.ToString()
+            : "none";
+        string serverHeld = player.currentlyHeldObjectServer != null
+            ? player.currentlyHeldObjectServer.NetworkObjectId.ToString()
+            : "none";
+        string itemState = string.Empty;
+        if (cardReference.TryGet(out NetworkObject networkObject) &&
+            networkObject != null)
+        {
+            GrabbableObject? card = networkObject.GetComponent<GrabbableObject>();
+            if (card != null)
+            {
+                int enabledRenderers = 0;
+                int totalRenderers = 0;
+                foreach (Renderer renderer in
+                         card.GetComponentsInChildren<Renderer>(true))
+                {
+                    totalRenderers++;
+                    if (renderer.enabled && renderer.gameObject.activeInHierarchy)
+                        enabledRenderers++;
+                }
+
+                int enabledColliders = 0;
+                int totalColliders = 0;
+                foreach (Collider collider in
+                         card.GetComponentsInChildren<Collider>(true))
+                {
+                    totalColliders++;
+                    if (collider.enabled)
+                        enabledColliders++;
+                }
+
+                itemState =
+                    $" | Spawned={networkObject.IsSpawned} | Owner={networkObject.OwnerClientId} | " +
+                    $"Held={card.isHeld} | Pocketed={card.isPocketed} | " +
+                    $"Parent={card.parentObject?.name ?? "none"} | " +
+                    $"TransformParent={card.transform.parent?.name ?? "none"} | " +
+                    $"Renderers={enabledRenderers}/{totalRenderers} | " +
+                    $"Colliders={enabledColliders}/{totalColliders} | " +
+                    $"LocalScale={card.transform.localScale} | LossyScale={card.transform.lossyScale}";
+            }
+        }
+
+        return $" | SelectedSlot={player.currentItemSlot} | " +
+               $"IntendedSlotObject={intendedSlot} | CurrentHeld={currentHeld} | " +
+               $"ServerHeld={serverHeld}{itemState}";
+    }
+
     private void RestoreIncomingAfterFailure(
         PlayerControllerB player,
         int inventorySlot,
         ShipCardDisplayStoredCard incoming)
     {
-        if (!TrySpawnIntoInventory(player, inventorySlot, incoming, out _))
+        if (!TrySpawnIntoInventory(
+                player,
+                inventorySlot,
+                incoming,
+                0,
+                "RollbackRestore",
+                false,
+                out _,
+                out _))
         {
             Plugin.Log.LogError(
                 $"SHIP CARD DISPLAY ROLLBACK FAILED | CardId={incoming.CardId} | " +
                 $"Player={player.playerUsername} | InventorySlot={inventorySlot}");
         }
+    }
+
+    private void Update()
+    {
+        if (!IsServer || pendingAttachments.Count == 0)
+            return;
+
+        float now = Time.realtimeSinceStartup;
+        List<ulong>? expired = null;
+        foreach (KeyValuePair<ulong, PendingAttachment> entry in pendingAttachments)
+        {
+            if (now < entry.Value.ResponseDeadline)
+                continue;
+            expired ??= new List<ulong>();
+            expired.Add(entry.Key);
+        }
+
+        if (expired == null)
+            return;
+
+        foreach (ulong transactionId in expired)
+            RetryOrFailAttachment(transactionId, "AcknowledgmentTimeout");
+    }
+
+    private void SendAttachmentAttempt(PendingAttachment pending)
+    {
+        if (!IsServer || !pendingAttachments.ContainsKey(pending.TransactionId) ||
+            NetworkManager.Singleton == null ||
+            !NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
+                pending.NetworkObjectId,
+                out NetworkObject networkObject) ||
+            networkObject == null || !networkObject.IsSpawned)
+        {
+            pending.Attempts = MaximumAttachmentAttempts;
+            pendingAttachments[pending.TransactionId] = pending;
+            RetryOrFailAttachment(pending.TransactionId, "ReconstructedObjectMissing");
+            return;
+        }
+
+        pending.Attempts++;
+        pending.ResponseDeadline =
+            Time.realtimeSinceStartup + AttachmentResponseTimeout;
+        pendingAttachments[pending.TransactionId] = pending;
+        LogTransaction(
+            pending.TransactionId,
+            pending.ClientId,
+            pending.Action,
+            "AttachmentSent",
+            $"Attempt={pending.Attempts} | NetworkObject={pending.NetworkObjectId} | " +
+            $"Slot={pending.InventorySlot}");
+        AttachCardClientRpc(
+            pending.TransactionId,
+            pending.ClientId,
+            pending.InventorySlot,
+            new NetworkObjectReference(networkObject));
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void ConfirmAttachmentServerRpc(
+        ulong transactionId,
+        ulong networkObjectId,
+        bool succeeded,
+        ServerRpcParams rpcParams = default)
+    {
+        ulong senderClientId = rpcParams.Receive.SenderClientId;
+        if (!pendingAttachments.TryGetValue(
+                transactionId,
+                out PendingAttachment pending) ||
+            pending.ClientId != senderClientId ||
+            pending.NetworkObjectId != networkObjectId)
+        {
+            LogTransaction(
+                transactionId,
+                senderClientId,
+                "Reconstruction",
+                "AcknowledgmentIgnored",
+                $"NetworkObject={networkObjectId} | Reason=UnknownOrMismatchedTransaction");
+            return;
+        }
+
+        string failure = "OwnerReportedFailure";
+        if (!succeeded || !ValidateServerAttachment(pending, out failure))
+        {
+            RetryOrFailAttachment(
+                transactionId,
+                failure);
+            return;
+        }
+
+        pendingAttachments.Remove(transactionId);
+        LogTransaction(
+            transactionId,
+            senderClientId,
+            pending.Action,
+            "AttachmentConfirmed",
+            $"NetworkObject={networkObjectId} | Slot={pending.InventorySlot}");
+        CompleteTransaction(senderClientId, transactionId);
+    }
+
+    private bool ValidateServerAttachment(
+        PendingAttachment pending,
+        out string failure)
+    {
+        failure = string.Empty;
+        NetworkManager? manager = NetworkManager.Singleton;
+        if (manager == null ||
+            !manager.SpawnManager.SpawnedObjects.TryGetValue(
+                pending.NetworkObjectId,
+                out NetworkObject networkObject) ||
+            networkObject == null || !networkObject.IsSpawned)
+        {
+            failure = "ReconstructedObjectMissing";
+            return false;
+        }
+
+        if (networkObject.OwnerClientId != pending.ClientId)
+        {
+            failure = "OwnerMismatch";
+            return false;
+        }
+
+        if (!TryResolvePlayer(pending.ClientId, out PlayerControllerB player) ||
+            pending.InventorySlot < 0 ||
+            pending.InventorySlot >= player.ItemSlots.Length ||
+            player.ItemSlots[pending.InventorySlot] !=
+                networkObject.GetComponent<GrabbableObject>())
+        {
+            failure = "ServerInventorySlotMismatch";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void RetryOrFailAttachment(ulong transactionId, string reason)
+    {
+        if (!pendingAttachments.TryGetValue(
+                transactionId,
+                out PendingAttachment pending))
+        {
+            return;
+        }
+
+        NetworkManager? manager = NetworkManager.Singleton;
+        bool clientConnected = manager != null &&
+            manager.ConnectedClients.ContainsKey(pending.ClientId);
+        if (clientConnected && pending.Attempts < MaximumAttachmentAttempts)
+        {
+            LogTransaction(
+                transactionId,
+                pending.ClientId,
+                pending.Action,
+                "AttachmentRetry",
+                $"PreviousAttempt={pending.Attempts} | Reason={reason}");
+            SendAttachmentAttempt(pending);
+            return;
+        }
+
+        pendingAttachments.Remove(transactionId);
+        Plugin.Log.LogError(
+            $"SHIP CARD DISPLAY RECONCILIATION FAILED | Transaction={transactionId} | " +
+            $"Client={pending.ClientId} | Action={pending.Action} | " +
+            $"NetworkObject={pending.NetworkObjectId} | Slot={pending.InventorySlot} | " +
+            $"Attempts={pending.Attempts} | ClientConnected={clientConnected} | Reason={reason}");
+        SendTerminalResult(
+            pending.ClientId,
+            transactionId,
+            InteractionResult.AttachmentFailed,
+            "Failed",
+            $"Reason={reason} | Attempts={pending.Attempts} | ClientConnected={clientConnected}",
+            clientConnected);
+    }
+
+    private void CompleteTransaction(ulong clientId, ulong transactionId)
+    {
+        SendTerminalResult(
+            clientId,
+            transactionId,
+            InteractionResult.Success,
+            "Completed",
+            "Result=Success");
     }
 
     private static bool CanReconstruct(ShipCardDisplayStoredCard storedCard)
@@ -643,6 +1332,36 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         player.ItemSlots[player.currentItemSlot] == null &&
         player.currentlyHeldObjectServer == null;
 
+    private static bool HasRequestedCardSelectionChanged(
+        PlayerControllerB player,
+        NetworkObjectReference requestedCard)
+    {
+        NetworkManager? manager = NetworkManager.Singleton;
+        if (manager == null ||
+            !requestedCard.TryGet(out NetworkObject networkObject, manager))
+        {
+            return false;
+        }
+
+        GrabbableObject? card = networkObject.GetComponent<GrabbableObject>();
+        int inventorySlot = card == null ? -1 : FindInventorySlot(player, card);
+        return inventorySlot >= 0 && inventorySlot != player.currentItemSlot;
+    }
+
+    private static bool HasSettledNonEmptySelection(PlayerControllerB player)
+    {
+        if (player.currentItemSlot < 0 ||
+            player.currentItemSlot >= player.ItemSlots.Length)
+        {
+            return false;
+        }
+
+        GrabbableObject? selected = player.ItemSlots[player.currentItemSlot];
+        return selected != null &&
+               player.currentlyHeldObjectServer == selected &&
+               selected.heldByPlayerOnServer;
+    }
+
     private static string BuildHeldCardDiagnostic(
         PlayerControllerB player,
         NetworkObjectReference requestedCard,
@@ -696,47 +1415,302 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         Plugin.Log.LogWarning(message);
     }
 
-    private bool ValidatePlayerAndDistance(PlayerControllerB player)
+    private static bool ValidatePlayerState(
+        PlayerControllerB player,
+        out string failure)
     {
-        if (player == null || !player.isPlayerControlled || player.isPlayerDead ||
-            player.gameplayCamera == null)
+        if (player == null || !player.isPlayerControlled)
         {
+            failure = "InvalidPlayerState";
+            return false;
+        }
+
+        if (player.isPlayerDead)
+        {
+            failure = "PlayerDead";
+            return false;
+        }
+
+        failure = string.Empty;
+        return true;
+    }
+
+    private bool TryValidateInteractionSnapshot(
+        PlayerControllerB player,
+        Vector3 localRayOrigin,
+        Vector3 localRayDirection,
+        ulong transactionId,
+        out int selectedSlot,
+        out string failure,
+        out string details)
+    {
+        selectedSlot = -1;
+        failure = string.Empty;
+        details = string.Empty;
+        if (!IsFinite(localRayOrigin) || !IsFinite(localRayDirection) ||
+            localRayDirection.sqrMagnitude < 0.81f ||
+            localRayDirection.sqrMagnitude > 1.21f)
+        {
+            failure = "InvalidInteractionSnapshot";
+            details =
+                $"LocalRayOrigin={localRayOrigin} | LocalRayDirection={localRayDirection}";
+            return false;
+        }
+
+        Vector3 worldOrigin = transform.TransformPoint(localRayOrigin);
+        Vector3 worldDirection =
+            transform.TransformDirection(localRayDirection).normalized;
+        Vector3 expectedEyePosition = player.playerEye != null
+            ? player.playerEye.position
+            : player.transform.position + Vector3.up * 1.5f;
+        if (Vector3.Distance(worldOrigin, expectedEyePosition) >
+            MaximumSnapshotOriginOffset)
+        {
+            failure = "InvalidSnapshotOrigin";
+            details =
+                $"RayOrigin={worldOrigin} | ExpectedEye={expectedEyePosition} | " +
+                $"Offset={Vector3.Distance(worldOrigin, expectedEyePosition):F3}";
             return false;
         }
 
         Collider? interactionCollider = FindInteractionCollider();
         Vector3 target = interactionCollider != null
-            ? interactionCollider.ClosestPoint(player.gameplayCamera.transform.position)
+            ? interactionCollider.ClosestPoint(worldOrigin)
             : transform.position;
-        float maximumDistance = player.grabDistance + InteractionDistancePadding;
-        Vector3 cameraToTarget = target - player.gameplayCamera.transform.position;
-        if (cameraToTarget.magnitude > maximumDistance ||
-            cameraToTarget.sqrMagnitude < 0.001f ||
+        Vector3 originToTarget = target - worldOrigin;
+        if (originToTarget.magnitude > player.grabDistance ||
+            originToTarget.sqrMagnitude < 0.001f ||
             Vector3.Dot(
-                player.gameplayCamera.transform.forward,
-                cameraToTarget.normalized) < 0.75f)
+                worldDirection,
+                originToTarget.normalized) < 0.75f)
+        {
+            failure = "InteractionOutOfRange";
+            details =
+                $"RayOrigin={worldOrigin} | RayDirection={worldDirection} | " +
+                $"Target={target} | Distance={originToTarget.magnitude:F3} | " +
+                $"MaximumDistance={player.grabDistance:F3}";
+            return false;
+        }
+
+        Ray snapshotRay = new(worldOrigin, worldDirection);
+        if (!IsCabinetFirstUnobstructedHit(
+                player,
+                snapshotRay,
+                player.grabDistance,
+                transactionId,
+                "RequestSnapshot",
+                out failure,
+                out details))
         {
             return false;
         }
 
-        return !Physics.Linecast(
-            player.gameplayCamera.transform.position,
-            target,
-            1 << 30,
-            QueryTriggerInteraction.Ignore);
+        // Slot identity is derived from the immutable request-time ray. Inventory
+        // settlement can take several frames, but later camera motion cannot
+        // redirect the already-authenticated interaction to another slot.
+        TrySelectSlotFromRay(snapshotRay, player.grabDistance, out selectedSlot);
+        return true;
     }
 
-    private bool ValidateRequestedSlotAim(PlayerControllerB player, int slotIndex)
+    private bool ValidateCurrentPlayerAccess(
+        PlayerControllerB player,
+        ulong transactionId,
+        out string failure,
+        out string details)
     {
-        if (player.gameplayCamera == null)
+        if (!ValidatePlayerState(player, out _))
+        {
+            failure = "InvalidPlayerState";
+            details = string.Empty;
+            return false;
+        }
+
+        Vector3 currentEyePosition = player.playerEye != null
+            ? player.playerEye.position
+            : player.transform.position + Vector3.up * 1.5f;
+        Collider? interactionCollider = FindInteractionCollider();
+        Vector3 target = interactionCollider != null
+            ? interactionCollider.ClosestPoint(currentEyePosition)
+            : transform.position;
+        Vector3 eyeToTarget = target - currentEyePosition;
+        float maximumDistance = player.grabDistance + InteractionDistancePadding;
+        if (eyeToTarget.sqrMagnitude < 0.001f ||
+            eyeToTarget.magnitude > maximumDistance)
+        {
+            failure = "InteractionOutOfRange";
+            details =
+                $"CurrentEye={currentEyePosition} | Target={target} | " +
+                $"Distance={eyeToTarget.magnitude:F3} | MaximumDistance={maximumDistance:F3}";
+            return false;
+        }
+
+        return IsCabinetFirstUnobstructedHit(
+            player,
+            new Ray(currentEyePosition, eyeToTarget.normalized),
+            maximumDistance,
+            transactionId,
+            "CurrentAccess",
+            out failure,
+            out details);
+    }
+
+    private bool IsCabinetFirstUnobstructedHit(
+        PlayerControllerB player,
+        Ray ray,
+        float maximumDistance,
+        ulong transactionId,
+        string validationStage,
+        out string failure,
+        out string details)
+    {
+        RaycastHit[] hits = Physics.RaycastAll(
+            ray,
+            maximumDistance,
+            InteractionCollisionMask,
+            QueryTriggerInteraction.Collide);
+        Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+        foreach (RaycastHit hit in hits)
+        {
+            Collider? collider = hit.collider;
+            if (collider == null)
+                continue;
+
+            ShipCardDisplayController? hitController =
+                collider.GetComponentInParent<ShipCardDisplayController>();
+            bool cabinetOwned = hitController == this;
+            bool playerOwned = collider.transform.IsChildOf(player.transform);
+            bool inventoryOwned = IsColliderOwnedByPlayerInventory(
+                collider,
+                player,
+                out GrabbableObject? inventoryItem);
+            string decision;
+            if (playerOwned)
+                decision = "IgnoredRequestingPlayerCollider";
+            else if (inventoryOwned)
+                decision = "IgnoredRequestingPlayerInventoryCollider";
+            else if (cabinetOwned)
+                decision = "AcceptedCabinetCollider";
+            else if (collider.isTrigger)
+                decision = "IgnoredUnrelatedTrigger";
+            else
+                decision = "BlockedByWorldCollider";
+
+            string hitDetails = BuildOcclusionHitDiagnostic(
+                ray,
+                maximumDistance,
+                collider,
+                hit.distance,
+                cabinetOwned,
+                playerOwned,
+                inventoryOwned,
+                inventoryItem,
+                validationStage,
+                decision);
+            if (Plugin.EnableDebugLogging)
+            {
+                LogTransaction(
+                    transactionId,
+                    player.actualClientId,
+                    "Interaction",
+                    "OcclusionTrace",
+                    hitDetails);
+            }
+
+            if (playerOwned || inventoryOwned)
+                continue;
+
+            if (cabinetOwned)
+            {
+                failure = string.Empty;
+                details = string.Empty;
+                return true;
+            }
+
+            if (!collider.isTrigger)
+            {
+                failure = "InteractionOccluded";
+                details = hitDetails;
+                return false;
+            }
+        }
+
+        failure = "InvalidCabinetTarget";
+        details =
+            $"Stage={validationStage} | RayOrigin={ray.origin} | " +
+            $"RayDirection={ray.direction} | MaximumDistance={maximumDistance:F3} | " +
+            $"CollisionMask={InteractionCollisionMask} | Hits={hits.Length} | " +
+            "Decision=NoCabinetColliderHit";
+        return false;
+    }
+
+    internal static bool IsColliderOwnedByPlayerInventory(
+        Collider collider,
+        PlayerControllerB player,
+        out GrabbableObject? inventoryItem)
+    {
+        inventoryItem = collider == null
+            ? null
+            : collider.GetComponentInParent<GrabbableObject>();
+        if (inventoryItem == null || player == null || player.ItemSlots == null)
             return false;
 
-        Ray cameraRay = new(
-            player.gameplayCamera.transform.position,
-            player.gameplayCamera.transform.forward);
-        return TrySelectSlotFromRay(cameraRay, player.grabDistance, out int selectedSlot) &&
-               selectedSlot == slotIndex;
+        foreach (GrabbableObject? item in player.ItemSlots)
+        {
+            if (item == inventoryItem)
+            {
+                // A stale slot reference must not make an ordinary world item
+                // transparent to server line-of-sight validation.
+                return inventoryItem.playerHeldBy == player ||
+                       inventoryItem == player.currentlyHeldObject ||
+                       inventoryItem == player.currentlyHeldObjectServer;
+            }
+        }
+
+        return false;
     }
+
+    private static string BuildOcclusionHitDiagnostic(
+        Ray ray,
+        float maximumDistance,
+        Collider collider,
+        float hitDistance,
+        bool cabinetOwned,
+        bool playerOwned,
+        bool inventoryOwned,
+        GrabbableObject? inventoryItem,
+        string validationStage,
+        string decision)
+    {
+        int layer = collider.gameObject.layer;
+        return
+            $"Stage={validationStage} | RayOrigin={ray.origin} | " +
+            $"RayDirection={ray.direction} | MaximumDistance={maximumDistance:F3} | " +
+            $"CollisionMask={InteractionCollisionMask} | Collider={collider.name} | " +
+            $"Path={BuildHierarchyPath(collider.transform)} | Layer={layer} " +
+            $"({LayerMask.LayerToName(layer)}) | HitDistance={hitDistance:F3} | " +
+            $"CabinetOwned={cabinetOwned} | PlayerOwned={playerOwned} | " +
+            $"InventoryOwned={inventoryOwned} | " +
+            $"InventoryObject={(inventoryItem == null ? "none" : inventoryItem.name)} | " +
+            $"Trigger={collider.isTrigger} | Decision={decision}";
+    }
+
+    private static string BuildHierarchyPath(Transform transform)
+    {
+        string path = transform.name;
+        Transform? parent = transform.parent;
+        while (parent != null)
+        {
+            path = parent.name + "/" + path;
+            parent = parent.parent;
+        }
+
+        return path;
+    }
+
+    private static bool IsFinite(Vector3 value) =>
+        !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+        !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+        !float.IsNaN(value.z) && !float.IsInfinity(value.z);
 
     internal bool TrySelectSlotFromRay(
         Ray worldRay,
@@ -1047,14 +2021,65 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         return count;
     }
 
-    private void Reject(ulong clientId, string reason, string details = "")
+    private void Reject(
+        ulong clientId,
+        ulong transactionId,
+        string reason,
+        string details = "")
     {
+        InteractionResult result = reason == "InteractionOccluded"
+            ? InteractionResult.Occluded
+            : InteractionResult.Failed;
+        SendTerminalResult(
+            clientId,
+            transactionId,
+            result,
+            "Rejected",
+            $"Reason={reason}" +
+            (string.IsNullOrEmpty(details) ? string.Empty : $" | {details}"));
         LogDiagnosticRateLimited(
             $"{clientId}:{reason}",
-            $"SHIP CARD DISPLAY INTERACTION REJECTED | Cabinet={NetworkObjectId} | " +
-            $"Client={clientId} | Reason={reason}" +
+            $"SHIP CARD DISPLAY INTERACTION REJECTED | Transaction={transactionId} | " +
+            $"Cabinet={NetworkObjectId} | Client={clientId} | Reason={reason}" +
             (string.IsNullOrEmpty(details) ? string.Empty : $" | {details}"));
-        SendResult(clientId, InteractionResult.Failed);
+    }
+
+    private void RejectRetryable(
+        ulong clientId,
+        ulong transactionId,
+        string reason)
+    {
+        SendTerminalResult(
+            clientId,
+            transactionId,
+            InteractionResult.Synchronizing,
+            "Retryable",
+            $"Reason={reason}");
+    }
+
+    private void CancelChangedInteraction(
+        ulong clientId,
+        ulong transactionId,
+        string reason)
+    {
+        SendTerminalResult(
+            clientId,
+            transactionId,
+            InteractionResult.ActionChanged,
+            "Canceled",
+            $"Reason={reason}");
+    }
+
+    private static void LogTransaction(
+        ulong transactionId,
+        ulong clientId,
+        string action,
+        string state,
+        string details)
+    {
+        Plugin.Log.LogInfo(
+            $"SHIP CARD DISPLAY TRANSACTION | Transaction={transactionId} | " +
+            $"Client={clientId} | Action={action} | State={state} | {details}");
     }
 
     private void SendResult(ulong clientId, InteractionResult result)
@@ -1068,6 +2093,35 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
                     TargetClientIds = new[] { clientId }
                 }
             });
+    }
+
+    private void SendTerminalResult(
+        ulong clientId,
+        ulong transactionId,
+        InteractionResult result,
+        string state,
+        string details,
+        bool sendToClient = true)
+    {
+        if (!terminalTransactions.Add(transactionId))
+        {
+            LogTransaction(
+                transactionId,
+                clientId,
+                "Interaction",
+                "DuplicateTerminalSuppressed",
+                $"AttemptedResult={result} | AttemptedState={state}");
+            return;
+        }
+
+        LogTransaction(
+            transactionId,
+            clientId,
+            "Interaction",
+            state,
+            details);
+        if (sendToClient)
+            SendResult(clientId, result);
     }
 
     [ClientRpc]
@@ -1089,6 +2143,14 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             InteractionResult.AlreadyEmpty => "That display slot is already empty.",
             InteractionResult.InventoryFull => "Select an empty inventory slot first.",
             InteractionResult.Busy => "The display case is handling another card.",
+            InteractionResult.Synchronizing =>
+                "Inventory synchronization is still catching up. Try again.",
+            InteractionResult.AttachmentFailed =>
+                "The transaction committed, but the returned card could not be synchronized.",
+            InteractionResult.ActionChanged =>
+                "Your selected inventory item changed; interaction canceled.",
+            InteractionResult.Occluded =>
+                "Move closer or clear the line of sight to the display case.",
             _ => "The card transaction could not be completed."
         };
         HUDManager.Instance.DisplayTip(
@@ -1179,6 +2241,35 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
         AlreadyEmpty,
         InventoryFull,
         Busy,
+        Synchronizing,
+        AttachmentFailed,
+        ActionChanged,
+        Occluded,
         Failed
+    }
+
+    private sealed class PendingAttachment
+    {
+        internal PendingAttachment(
+            ulong transactionId,
+            ulong clientId,
+            int inventorySlot,
+            ulong networkObjectId,
+            string action)
+        {
+            TransactionId = transactionId;
+            ClientId = clientId;
+            InventorySlot = inventorySlot;
+            NetworkObjectId = networkObjectId;
+            Action = action;
+        }
+
+        internal ulong TransactionId { get; }
+        internal ulong ClientId { get; }
+        internal int InventorySlot { get; }
+        internal ulong NetworkObjectId { get; }
+        internal string Action { get; }
+        internal int Attempts { get; set; }
+        internal float ResponseDeadline { get; set; }
     }
 }
