@@ -288,8 +288,10 @@ public class Plugin : BaseUnityPlugin
     // CARD REGISTRATION
     // ============================================================
 
-    private void PrepareCardPrefab(
-        GameObject prefab)
+    private bool PrepareCardPrefab(
+        GameObject prefab,
+        Item item,
+        string cardId)
     {
         if (prefab == null)
         {
@@ -297,7 +299,7 @@ public class Plugin : BaseUnityPlugin
                 "CARD PREFAB PREP FAILED | Prefab was null."
             );
 
-            return;
+            return false;
         }
 
         NetworkObject networkObject =
@@ -311,7 +313,7 @@ public class Plugin : BaseUnityPlugin
                 $"Reason=NetworkObject missing"
             );
 
-            return;
+            return false;
         }
 
         CardInstanceData instanceData =
@@ -344,6 +346,8 @@ public class Plugin : BaseUnityPlugin
                 $"CardInstanceData already present"
             ); */
         }
+
+        return CardPhysicalState.PreparePrefab(item, prefab, cardId);
     }
     private void RegisterCard(AssetBundle bundle, CardDefinition card)
     {
@@ -356,7 +360,13 @@ public class Plugin : BaseUnityPlugin
             return;
         }
 
-        PrepareCardPrefab(item.spawnPrefab);
+        if (!PrepareCardPrefab(item.spawnPrefab, item, card.CardId))
+        {
+            Log.LogError(
+                $"CARD DISABLED | Id={card.CardId} | Asset={card.AssetName} | " +
+                "Physical card scale or collider initialization failed.");
+            return;
+        }
         SilentItemAudio.EnsureFallbacks(item);
         item.verticalOffset = CardFloorVerticalOffset;
         // Log.LogInfo($"FLOOR OFFSET CONFIG | Type=Card | VerticalOffset={item.verticalOffset}");

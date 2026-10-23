@@ -567,6 +567,16 @@ public class BoosterPackBehaviour : PhysicsProp
             return;
         }
 
+        if (!CardPhysicalState.EnsureInstance(
+                cardPhysicsProp,
+                "BoosterPackBehaviour.SpawnCard"))
+        {
+            Plugin.Log.LogError(
+                $"{pull.Card.DisplayName} spawned with invalid physical card state.");
+            Destroy(cardObject);
+            return;
+        }
+
         cardPhysicsProp.itemProperties = pull.Card.ItemAsset;
         Vector3? shipLocalRestPosition = null;
         Quaternion shipLocalRestRotation = Quaternion.identity;

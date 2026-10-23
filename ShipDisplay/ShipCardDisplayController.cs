@@ -874,10 +874,12 @@ public sealed class ShipCardDisplayController : NetworkBehaviour
             return false;
         }
         // Spawned reconstruction is attached before Unity invokes Start().
-        // Mirror GrabbableObject.Start's collider discovery so EnablePhysics
-        // can disable the physical and ScanNode colliders immediately.
-        if (card.propColliders == null || card.propColliders.Length == 0)
-            card.propColliders = card.gameObject.GetComponentsInChildren<Collider>();
+        // Initialize vanilla's cached scale and complete collider set first so
+        // physical and ScanNode colliders can be disabled immediately.
+        if (!CardPhysicalState.EnsureInstance(
+                card,
+                "ShipCardDisplay.ApplyCardToInventory"))
+            return false;
         card.EnablePhysics(false);
         card.isHeld = true;
         card.heldByPlayerOnServer = true;

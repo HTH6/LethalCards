@@ -59,7 +59,7 @@ try {
     Assert-True ($null -ne $terminalResult) 'Missing exactly-once display transaction terminal result handling'
     $applyDisplayCard = $displayController.Methods | Where-Object Name -eq 'ApplyCardToInventory'
     Assert-True (@($applyDisplayCard.Body.Instructions | Where-Object { $_.Operand.Name -eq 'RefreshPhysicalScanNodeVisibility' }).Count -gt 0) 'Reconstructed cards do not immediately refresh physical scan-node visibility'
-    Assert-True (@($applyDisplayCard.Body.Instructions | Where-Object { $_.OpCode.Name -eq 'stfld' -and $_.Operand.Name -eq 'propColliders' }).Count -eq 1) 'Reconstructed cards do not initialize vanilla propColliders before disabling physics'
+    Assert-True (@($applyDisplayCard.Body.Instructions | Where-Object { $_.Operand.Name -eq 'EnsureInstance' -and $_.Operand.DeclaringType.FullName -eq 'LethalCards.Cards.CardPhysicalState' }).Count -eq 1) 'Reconstructed cards do not initialize vanilla scale and propColliders before disabling physics'
     $directResultSenders = @($displayController.Methods | Where-Object {
         $_.HasBody -and @($_.Body.Instructions | Where-Object { $_.Operand.Name -eq 'SendResult' }).Count -gt 0
     })
@@ -90,6 +90,18 @@ try {
     $refreshScanVisibility = $cardData.Methods | Where-Object Name -eq 'RefreshPhysicalScanNodeVisibility'
     Assert-True ($null -ne $refreshScanVisibility) 'Missing physical card scan-node state reconciliation'
     Assert-True (@($refreshScanMetadata.Body.Instructions | Where-Object { $_.Operand.Name -eq 'SetActive' }).Count -eq 0) 'Card metadata refresh still directly reactivates scan-node objects'
+    $cardPhysicalState = $assembly.MainModule.GetType('LethalCards.Cards.CardPhysicalState')
+    Assert-True ($null -ne $cardPhysicalState) 'Missing physical card scale/collider safeguard'
+    foreach ($methodName in @('PreparePrefab', 'EnsureInstance', 'IsUsableScale')) {
+        Assert-True (@($cardPhysicalState.Methods | Where-Object Name -eq $methodName).Count -eq 1) "Missing physical card safeguard method: $methodName"
+    }
+    foreach ($typeName in @(
+        'LethalCards.Cards.CardPhysicalStateStartPatch',
+        'LethalCards.Cards.CardPhysicalStatePlacePatch',
+        'LethalCards.Cards.CardPhysicalStateDropPatch'
+    )) {
+        Assert-True ($null -ne $assembly.MainModule.GetType($typeName)) "Missing physical card lifecycle patch: $typeName"
+    }
 
     $serialization = $assembly.MainModule.GetType('__GEN.NetworkVariableSerializationHelper')
     Assert-True ($null -ne $serialization) 'Missing generated variable serialization initialization'
@@ -120,6 +132,12 @@ try {
     $roundManager = $game.MainModule.GetType('RoundManager')
     Assert-True (@($roundManager.Methods | Where-Object Name -eq 'DespawnPropsAtEndOfRound').Count -eq 1) 'Crew-wipe persistence hook is missing or ambiguous'
     Assert-True (@($player.Methods | Where-Object Name -eq 'SwitchToItemSlot').Count -eq 1) 'Exact-slot inventory handoff method is missing or ambiguous'
+    $placeObject = $player.Methods | Where-Object Name -eq 'PlaceGrabbableObject'
+    Assert-True ($placeObject.Parameters.Count -eq 4 -and $placeObject.Parameters[3].ParameterType.FullName -eq 'GrabbableObject') 'Physical card placement safeguard no longer matches the game'
+    Assert-True (@($placeObject.Body.Instructions | Where-Object { $_.Operand.Name -eq 'originalScale' }).Count -gt 0) 'Game placement no longer reapplies GrabbableObject.originalScale'
+    $dropObject = $player.Methods | Where-Object Name -eq 'SetObjectAsNoLongerHeld'
+    Assert-True ($dropObject.Parameters.Count -eq 5 -and $dropObject.Parameters[3].ParameterType.FullName -eq 'GrabbableObject') 'Physical card drop safeguard no longer matches the game'
+    Assert-True (@($dropObject.Body.Instructions | Where-Object { $_.Operand.Name -eq 'originalScale' }).Count -gt 0) 'Game drop no longer reapplies GrabbableObject.originalScale'
 
     # Museum uses authenticated Netcode custom messages rather than a networked
     # scene model. Verify its persistence, synchronization, interaction, and
@@ -167,6 +185,7 @@ try {
     $playerDebug = $assembly.MainModule.GetType('LethalCards.Debugging.PlayerPositionDebugPatch')
     $playerDebugPostfix = $playerDebug.Methods | Where-Object Name -eq 'Postfix'
     Assert-True (@($playerDebugPostfix.Body.Instructions | Where-Object { $_.Operand.Name -eq 'get_EnableDebugLogging' }).Count -gt 0) 'Player position diagnostics are not gated by EnableDebugLogging'
+    Assert-True (@($assembly.MainModule.AssemblyReferences | Where-Object Name -like 'UnityEditor*').Count -eq 0) 'UnityEditor dependency leaked into the runtime mod DLL'
     Write-Output "PASS: RPC rewriting, card/return variables, serialization startup, $checkedReferences Netcode references, and game hook contracts."
     Write-Output 'PASS: Museum prefab, persistence, interaction, and custom-message synchronization contracts.'
     Write-Output 'This verifies the build and installed APIs; run the host/client checklist for gameplay validation.'

@@ -5,6 +5,7 @@
 - Fixed display case scan bug that would show card in hand when scan node activates
 - Fixed display case client card submission/withdrawl having time-out errors in circumstances where player tried to rapidly swap/withdraw/deposit cards
 - May have also fixed bug where on rare occasions, card withdrawn from ship display case when dropped was invisible to clients - if this isn't fixed now, it will be in a very near future update (once I perform more testing)
+- Fixed a bug where, on very, very rare instances, players would fall through the map on selling a card due to invalid mesh colliders on cards. These have been removed.
 
 ## 2.0.0
 ### Added — Ship Card Display Case

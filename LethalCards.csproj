@@ -25,6 +25,12 @@
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
   </ItemGroup>
 
+  <!-- Standalone scripts copied into the separate Unity project's Assets/Editor folder. -->
+  <ItemGroup>
+    <Compile Remove="tools\UnityEditor\**\*.cs" />
+    <None Include="tools\UnityEditor\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="Unity.Collections">
       <HintPath>$(LethalCompanyDir)\Lethal Company_Data\Managed\Unity.Collections.dll</HintPath>

@@ -97,6 +97,10 @@ public class CardInstanceData : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
+        CardPhysicalState.EnsureInstance(
+            GetComponent<GrabbableObject>(),
+            "CardInstanceData.OnNetworkSpawn");
+
         ResolveCardId();
 
         networkVariant.OnValueChanged += OnVariantChanged;

@@ -207,6 +207,17 @@ public static class GradingReturnSpawner
             return false;
         }
 
+        if (!CardPhysicalState.EnsureInstance(
+                grabbable,
+                "GradingReturnSpawner.SpawnReadyCard"))
+        {
+            Plugin.Log.LogError(
+                $"GRADING RETURN ERROR | CardId={job.CardId} | " +
+                "Reason=Invalid physical card state");
+            Object.Destroy(obj);
+            return false;
+        }
+
         NetworkObject networkObject =
             obj.GetComponent<NetworkObject>();
 
